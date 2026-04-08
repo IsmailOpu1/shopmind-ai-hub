@@ -16,24 +16,138 @@ export type Database = {
     Tables: {
       businesses: {
         Row: {
+          bot_name: string
           created_at: string
+          greeting: string
           id: string
           name: string
           owner_id: string
         }
         Insert: {
+          bot_name?: string
           created_at?: string
+          greeting?: string
           id?: string
           name: string
           owner_id: string
         }
         Update: {
+          bot_name?: string
           created_at?: string
+          greeting?: string
           id?: string
           name?: string
           owner_id?: string
         }
         Relationships: []
+      }
+      conversations: {
+        Row: {
+          business_id: string
+          created_at: string
+          id: string
+          session_id: string
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          id?: string
+          session_id: string
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          id?: string
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      messages: {
+        Row: {
+          content: string
+          conversation_id: string
+          created_at: string
+          id: string
+          role: string
+        }
+        Insert: {
+          content: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          role: string
+        }
+        Update: {
+          content?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          business_id: string
+          category: string | null
+          created_at: string
+          description: string | null
+          id: string
+          image_url: string | null
+          name: string
+          price: number | null
+          promo: string | null
+          stock_status: string
+        }
+        Insert: {
+          business_id: string
+          category?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          name: string
+          price?: number | null
+          promo?: string | null
+          stock_status?: string
+        }
+        Update: {
+          business_id?: string
+          category?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          name?: string
+          price?: number | null
+          promo?: string | null
+          stock_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "products_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

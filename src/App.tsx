@@ -6,6 +6,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import DashboardLayout from "@/components/DashboardLayout";
 import DashboardHome from "@/pages/DashboardHome";
+import ChatbotSettings from "@/pages/ChatbotSettings";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import NotFound from "./pages/NotFound";
@@ -32,7 +33,7 @@ const App = () => (
             >
               <Route index element={<DashboardHome />} />
               <Route path="products" element={<div className="text-muted-foreground">Products page coming soon...</div>} />
-              <Route path="chatbot" element={<div className="text-muted-foreground">Chatbot Settings coming soon...</div>} />
+              <Route path="chatbot" element={<ChatbotSettings />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
