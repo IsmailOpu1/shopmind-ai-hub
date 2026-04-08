@@ -32,7 +32,7 @@ const App = () => (
             >
               <Route index element={<DashboardHome />} />
               <Route path="products" element={<div className="text-muted-foreground">Products page coming soon...</div>} />
-              <Route path="chatbot" element={<div className="text-muted-foreground">Chatbot Settings coming soon...</div>} />
+              <Route path="chatbot" element={<ChatbotSettings />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
