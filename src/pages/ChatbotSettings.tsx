@@ -33,7 +33,7 @@ const ChatbotSettings = () => {
     const fetchSettings = async () => {
       const { data, error } = await supabase
         .from("businesses")
-        .select("id, bot_name, greeting")
+        .select("id, bot_name, greeting, fab_position, primary_color")
         .eq("owner_id", user.id)
         .maybeSingle();
 
@@ -41,6 +41,8 @@ const ChatbotSettings = () => {
         setBusinessId(data.id);
         setBotName(data.bot_name ?? "ShopMind AI");
         setGreeting(data.greeting ?? "Hi! How can I help you today?");
+        setFabPosition(data.fab_position ?? "bottom-right");
+        setPrimaryColor(data.primary_color ?? "#1E40AF");
       }
       setLoading(false);
     };

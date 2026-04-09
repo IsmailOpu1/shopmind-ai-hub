@@ -18,26 +18,32 @@ export type Database = {
         Row: {
           bot_name: string
           created_at: string
+          fab_position: string | null
           greeting: string
           id: string
           name: string
           owner_id: string
+          primary_color: string | null
         }
         Insert: {
           bot_name?: string
           created_at?: string
+          fab_position?: string | null
           greeting?: string
           id?: string
           name: string
           owner_id: string
+          primary_color?: string | null
         }
         Update: {
           bot_name?: string
           created_at?: string
+          fab_position?: string | null
           greeting?: string
           id?: string
           name?: string
           owner_id?: string
+          primary_color?: string | null
         }
         Relationships: []
       }
