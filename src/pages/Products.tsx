@@ -37,6 +37,7 @@ const Products = () => {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<{ name: string; size: string } | null>(null);
 
   const fetchProducts = useCallback(async (bizId: string) => {
     const { data, error } = await supabase
@@ -103,11 +104,15 @@ const Products = () => {
 
   const handleFile = (file: File) => {
     const ext = file.name.split(".").pop()?.toLowerCase();
+    const sizeKB = (file.size / 1024).toFixed(2);
+    setSelectedFile({ name: file.name, size: `${sizeKB} KB` });
+
     if (ext === "csv") {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
         complete: (results) => {
+          console.log("Parsed CSV data:", results.data);
           const rows = normalizeRows(results.data as Record<string, unknown>[]);
           if (rows.length === 0) {
             toast.error("No valid product rows found in CSV.");
@@ -120,9 +125,11 @@ const Products = () => {
     } else if (ext === "xlsx" || ext === "xls") {
       const reader = new FileReader();
       reader.onload = (e) => {
-        const wb = XLSX.read(e.target?.result, { type: "binary" });
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(sheet) as Record<string, unknown>[];
+        console.log("Parsed XLSX data:", raw);
         const rows = normalizeRows(raw);
         if (rows.length === 0) {
           toast.error("No valid product rows found in spreadsheet.");
@@ -130,7 +137,7 @@ const Products = () => {
         }
         insertProducts(rows);
       };
-      reader.readAsBinaryString(file);
+      reader.readAsArrayBuffer(file);
     } else {
       toast.error("Unsupported file format. Please upload a CSV or XLSX file.");
     }
@@ -138,9 +145,11 @@ const Products = () => {
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOver(false);
     const file = e.dataTransfer.files[0];
     if (file) handleFile(file);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [businessId]);
 
   const onFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -187,39 +196,47 @@ const Products = () => {
       {/* Upload zone */}
       <Card>
         <CardContent className="p-0">
-          <label
+          <div
             className={`flex flex-col items-center justify-center gap-3 p-10 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
               dragOver
                 ? "border-primary bg-primary/10"
                 : "border-border hover:border-primary/50"
             }`}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
+            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); }}
             onDrop={onDrop}
+            onClick={() => document.getElementById("product-file-input")?.click()}
           >
             <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
               <Upload className="h-6 w-6 text-primary" />
             </div>
             <div className="text-center">
               <p className="font-medium">
-                {uploading ? "Uploading..." : "Drag & drop your file here"}
+                {uploading ? "Uploading..." : "Drag & drop your file here, or click to browse"}
               </p>
               <p className="text-sm text-muted-foreground mt-1">
                 Supports CSV and XLSX files
               </p>
             </div>
+            {selectedFile && (
+              <div className="flex items-center gap-2 text-sm text-primary">
+                <FileSpreadsheet className="h-4 w-4" />
+                <span>{selectedFile.name} ({selectedFile.size})</span>
+              </div>
+            )}
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <FileSpreadsheet className="h-4 w-4" />
               <span>Columns: name, description, price, image_url, category, stock_status, promo</span>
             </div>
             <input
+              id="product-file-input"
               type="file"
-              accept=".csv,.xlsx,.xls"
+              accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               className="hidden"
               onChange={onFileSelect}
               disabled={uploading}
             />
-          </label>
+          </div>
         </CardContent>
       </Card>
 
