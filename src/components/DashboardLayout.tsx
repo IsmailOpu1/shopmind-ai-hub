@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import ChatWidget from "@/components/ChatWidget";
 
 const DashboardLayout = () => {
   const { user } = useAuth();
@@ -38,6 +39,7 @@ const DashboardLayout = () => {
           <main className="flex-1 p-6">
             <Outlet />
           </main>
+          <ChatWidget />
         </div>
       </div>
     </SidebarProvider>
