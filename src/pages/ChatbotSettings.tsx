@@ -54,7 +54,7 @@ const ChatbotSettings = () => {
     setSaving(true);
     const { error } = await supabase
       .from("businesses")
-      .update({ bot_name: botName, greeting })
+      .update({ bot_name: botName, greeting, fab_position: fabPosition, primary_color: primaryColor })
       .eq("id", businessId);
 
     if (error) {
