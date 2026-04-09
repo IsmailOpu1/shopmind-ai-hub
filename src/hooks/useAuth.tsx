@@ -19,16 +19,38 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const ensureBusinessExists = async (userId: string) => {
+      const { data } = await supabase
+        .from("businesses")
+        .select("id")
+        .eq("owner_id", userId)
+        .maybeSingle();
+      if (!data) {
+        await supabase.from("businesses").insert({
+          owner_id: userId,
+          name: "My Business",
+          bot_name: "ShopMind AI",
+          greeting: "Hi! How can I help you today?",
+        });
+      }
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+      if (session?.user) {
+        setTimeout(() => ensureBusinessExists(session.user.id), 0);
+      }
     });
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+      if (session?.user) {
+        ensureBusinessExists(session.user.id);
+      }
     });
 
     return () => subscription.unsubscribe();
