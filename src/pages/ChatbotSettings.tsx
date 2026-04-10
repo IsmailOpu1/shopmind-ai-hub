@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Save } from "lucide-react";
 
 const ChatbotSettings = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -29,7 +29,11 @@ const ChatbotSettings = () => {
   const [primaryColor, setPrimaryColor] = useState("#1E40AF");
 
   useEffect(() => {
-    if (!user) return;
+    if (authLoading) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     const fetchSettings = async () => {
       const { data, error } = await supabase
         .from("businesses")
@@ -47,7 +51,7 @@ const ChatbotSettings = () => {
       setLoading(false);
     };
     fetchSettings();
-  }, [user]);
+  }, [user, authLoading]);
 
   const handleSave = async () => {
     if (!user) {
