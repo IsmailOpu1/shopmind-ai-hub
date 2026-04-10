@@ -59,9 +59,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signUp = async (email: string, password: string, businessName: string) => {
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) throw error;
-    if (data.user) {
-      await ensureBusinessExists(data.user.id, businessName);
-    }
+    // Business creation is handled by onAuthStateChange when the user
+    // actually has an authenticated session (after email confirmation + login).
+    // Calling it here would fail RLS since there's no session yet.
   };
 
   const signIn = async (email: string, password: string) => {
