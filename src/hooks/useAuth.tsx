@@ -35,6 +35,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     };
 
+    const ensureBusinessExistsWithName = async (userId: string, businessName: string) => {
+      const { data } = await supabase
+        .from("businesses")
+        .select("id")
+        .eq("owner_id", userId)
+        .maybeSingle();
+      if (!data) {
+        await supabase.from("businesses").insert({
+          owner_id: userId,
+          name: businessName,
+          bot_name: "ShopMind AI",
+          greeting: "Hi! How can I help you today?",
+        });
+      }
+    };
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -60,11 +76,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) throw error;
     if (data.user) {
-      const { error: bizError } = await supabase.from("businesses").insert({
-        owner_id: data.user.id,
-        name: businessName,
-      });
-      if (bizError) throw bizError;
+      await ensureBusinessExistsWithName(data.user.id, businessName);
     }
   };
 
