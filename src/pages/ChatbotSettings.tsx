@@ -50,12 +50,15 @@ const ChatbotSettings = () => {
   }, [user]);
 
   const handleSave = async () => {
-    if (!businessId) return;
+    if (!user) {
+      toast({ title: "Error", description: "You must be logged in.", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     const { error } = await supabase
       .from("businesses")
       .update({ bot_name: botName, greeting, fab_position: fabPosition, primary_color: primaryColor })
-      .eq("id", businessId);
+      .eq("owner_id", user.id);
 
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
