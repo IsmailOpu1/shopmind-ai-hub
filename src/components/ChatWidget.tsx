@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { MessageCircle, X, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
 import ProductCard from "./ProductCard";
 
 interface Message {
@@ -53,6 +54,7 @@ const ChatWidget = () => {
   const [typing, setTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(0);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (open && messages.length === 0) {
@@ -94,6 +96,10 @@ const ChatWidget = () => {
     }, 1200);
   };
 
+  const panelClasses = isMobile
+    ? "fixed inset-0 z-50 flex flex-col bg-card animate-scale-in"
+    : "fixed bottom-6 right-6 z-50 w-[380px] max-h-[600px] flex flex-col rounded-2xl border border-border bg-card shadow-2xl animate-scale-in overflow-hidden";
+
   return (
     <>
       {/* FAB */}
@@ -110,7 +116,7 @@ const ChatWidget = () => {
 
       {/* Panel */}
       {open && (
-        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-h-[600px] flex flex-col rounded-2xl border border-border bg-card shadow-2xl animate-scale-in overflow-hidden">
+        <div className={panelClasses}>
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/50">
             <div className="flex items-center gap-2">
@@ -131,7 +137,7 @@ const ChatWidget = () => {
           </div>
 
           {/* Messages */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[300px]">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
             {messages.map((msg) => (
               <div key={msg.id}>
                 <div

@@ -13,7 +13,9 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Upload, Trash2, FileSpreadsheet, X } from "lucide-react";
+import { Upload, Trash2, FileSpreadsheet, X, Package } from "lucide-react";
+import LoadingSpinner from "@/components/LoadingSpinner";
+import EmptyState from "@/components/EmptyState";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 
@@ -112,7 +114,6 @@ const Products = () => {
         header: true,
         skipEmptyLines: true,
         complete: (results) => {
-          console.log("Parsed CSV data:", results.data);
           const rows = normalizeRows(results.data as Record<string, unknown>[]);
           if (rows.length === 0) {
             toast.error("No valid product rows found in CSV.");
@@ -129,7 +130,6 @@ const Products = () => {
         const wb = XLSX.read(data, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(sheet) as Record<string, unknown>[];
-        console.log("Parsed XLSX data:", raw);
         const rows = normalizeRows(raw);
         if (rows.length === 0) {
           toast.error("No valid product rows found in spreadsheet.");
@@ -179,11 +179,11 @@ const Products = () => {
     }
   };
 
-  if (loading) return <div className="text-muted-foreground">Loading products...</div>;
+  if (loading) return <LoadingSpinner message="Loading products..." />;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold">Products</h1>
         {products.length > 0 && (
           <Button variant="destructive" size="sm" onClick={clearAll}>
@@ -197,7 +197,7 @@ const Products = () => {
       <Card>
         <CardContent className="p-0">
           <div
-            className={`flex flex-col items-center justify-center gap-3 p-10 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+            className={`flex flex-col items-center justify-center gap-3 p-6 sm:p-10 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
               dragOver
                 ? "border-primary bg-primary/10"
                 : "border-border hover:border-primary/50"
@@ -224,8 +224,8 @@ const Products = () => {
                 <span>{selectedFile.name} ({selectedFile.size})</span>
               </div>
             )}
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <FileSpreadsheet className="h-4 w-4" />
+            <div className="flex items-center gap-2 text-xs text-muted-foreground text-center">
+              <FileSpreadsheet className="h-4 w-4 shrink-0" />
               <span>Columns: name, description, price, image_url, category, stock_status, promo</span>
             </div>
             <input
@@ -244,56 +244,60 @@ const Products = () => {
       {products.length > 0 && (
         <Card>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Stock Status</TableHead>
-                  <TableHead className="w-12"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {products.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-medium">{p.name}</TableCell>
-                    <TableCell>
-                      {p.category && (
-                        <Badge variant="secondary">{p.category}</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {p.price != null ? `$${Number(p.price).toFixed(2)}` : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={p.stock_status === "in_stock" ? "default" : "destructive"}
-                      >
-                        {p.stock_status === "in_stock" ? "In Stock" : "Out of Stock"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteProduct(p.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Price</TableHead>
+                    <TableHead>Stock Status</TableHead>
+                    <TableHead className="w-12"></TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {products.map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell className="font-medium whitespace-nowrap">{p.name}</TableCell>
+                      <TableCell>
+                        {p.category && (
+                          <Badge variant="secondary">{p.category}</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {p.price != null ? `$${Number(p.price).toFixed(2)}` : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={p.stock_status === "in_stock" ? "default" : "destructive"}
+                        >
+                          {p.stock_status === "in_stock" ? "In Stock" : "Out of Stock"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteProduct(p.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       )}
 
       {products.length === 0 && (
-        <p className="text-center text-muted-foreground py-8">
-          No products uploaded yet. Upload a CSV or XLSX file to get started.
-        </p>
+        <EmptyState
+          icon={Package}
+          title="No products yet"
+          description="Upload a CSV or XLSX file to add your products catalog."
+        />
       )}
     </div>
   );

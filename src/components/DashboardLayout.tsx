@@ -27,16 +27,16 @@ const DashboardLayout = () => {
     <SidebarProvider>
       <div className="min-h-screen flex w-full">
         <AppSidebar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
           <header className="h-14 flex items-center justify-between border-b border-border px-4">
             <div className="flex items-center gap-2">
               <SidebarTrigger />
-              <span className="text-sm font-medium text-muted-foreground">
+              <span className="text-sm font-medium text-muted-foreground truncate">
                 {businessName || "Loading..."}
               </span>
             </div>
           </header>
-          <main className="flex-1 p-6">
+          <main className="flex-1 p-4 sm:p-6 overflow-x-hidden">
             <Outlet />
           </main>
           <ChatWidget />
