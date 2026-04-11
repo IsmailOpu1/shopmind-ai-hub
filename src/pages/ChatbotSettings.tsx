@@ -13,15 +13,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { Save } from "lucide-react";
+import LoadingSpinner from "@/components/LoadingSpinner";
 
 const ChatbotSettings = () => {
   const { user, loading: authLoading } = useAuth();
-  const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [businessId, setBusinessId] = useState<string | null>(null);
 
   const [botName, setBotName] = useState("ShopMind AI");
   const [greeting, setGreeting] = useState("Hi! How can I help you today?");
@@ -42,7 +41,6 @@ const ChatbotSettings = () => {
         .maybeSingle();
 
       if (!error && data) {
-        setBusinessId(data.id);
         setBotName(data.bot_name ?? "ShopMind AI");
         setGreeting(data.greeting ?? "Hi! How can I help you today?");
         setFabPosition(data.fab_position ?? "bottom-right");
@@ -55,7 +53,7 @@ const ChatbotSettings = () => {
 
   const handleSave = async () => {
     if (!user) {
-      toast({ title: "Error", description: "You must be logged in.", variant: "destructive" });
+      toast.error("You must be logged in.");
       return;
     }
     setSaving(true);
@@ -65,16 +63,14 @@ const ChatbotSettings = () => {
       .eq("owner_id", user.id);
 
     if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+      toast.error(error.message);
     } else {
-      toast({ title: "Saved", description: "Chatbot settings updated." });
+      toast.success("Chatbot settings updated.");
     }
     setSaving(false);
   };
 
-  if (loading) {
-    return <div className="text-muted-foreground">Loading settings...</div>;
-  }
+  if (loading) return <LoadingSpinner message="Loading settings..." />;
 
   return (
     <div className="space-y-6">
