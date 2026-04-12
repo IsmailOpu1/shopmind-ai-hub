@@ -80,6 +80,45 @@ const Products = () => {
     }).filter((r) => r.name && String(r.name).trim() !== "");
   };
 
+  const triggerEmbedProducts = async (bizId: string) => {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+    if (!supabaseUrl || !anonKey) {
+      throw new Error("Missing Supabase URL or anon key.");
+    }
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) {
+      throw new Error("No session; sign in again to generate embeddings.");
+    }
+
+    const res = await fetch(`${supabaseUrl}/functions/v1/embed-products`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: anonKey,
+      },
+      body: JSON.stringify({ business_id: bizId }),
+    });
+
+    let payload: { error?: string; embedded_count?: number } = {};
+    try {
+      payload = await res.json();
+    } catch {
+      /* non-JSON body */
+    }
+
+    if (!res.ok) {
+      const msg =
+        typeof payload.error === "string" && payload.error
+          ? payload.error
+          : `Embedding request failed (${res.status}). Products were saved.`;
+      throw new Error(msg);
+    }
+  };
+
   const insertProducts = async (rows: Record<string, unknown>[]) => {
     if (!businessId) return;
     setUploading(true);
@@ -97,10 +136,22 @@ const Products = () => {
     const { error } = await supabase.from("products").insert(toInsert);
     if (error) {
       toast.error("Failed to upload products: " + error.message);
-    } else {
-      toast.success(`${toInsert.length} product(s) uploaded successfully!`);
-      await fetchProducts(businessId);
+      setUploading(false);
+      return;
     }
+
+    await fetchProducts(businessId);
+
+    const embedToastId = toast.loading("Generating AI embeddings...");
+    try {
+      await triggerEmbedProducts(businessId);
+      toast.success("Products uploaded and AI ready!", { id: embedToastId });
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "Embedding generation failed. Products were saved.";
+      toast.error(message, { id: embedToastId });
+    }
+
     setUploading(false);
   };
 

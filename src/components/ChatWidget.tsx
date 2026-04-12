@@ -1,37 +1,30 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { MessageCircle, X, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 import ProductCard from "./ProductCard";
+
+interface ChatProduct {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  price: number | null;
+  image_url: string | null;
+  stock_status: string;
+  promo: string | null;
+}
 
 interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
-  showProducts?: boolean;
+  products?: ChatProduct[];
+  isError?: boolean;
 }
-
-const SAMPLE_PRODUCTS = [
-  {
-    name: "Wireless Headphones",
-    category: "Electronics",
-    price: 79.99,
-    description: "Premium noise-cancelling wireless headphones with 30-hour battery life.",
-    image_url: null,
-    stock_status: "in_stock",
-    promo: "20% OFF",
-  },
-  {
-    name: "Cotton T-Shirt",
-    category: "Apparel",
-    price: 24.99,
-    description: "Soft, breathable 100% organic cotton t-shirt available in multiple colors.",
-    image_url: null,
-    stock_status: "in_stock",
-    promo: null,
-  },
-];
 
 const TypingIndicator = () => (
   <div className="flex items-center gap-1 px-3 py-2">
@@ -48,13 +41,31 @@ const TypingIndicator = () => (
 );
 
 const ChatWidget = () => {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
+  const [businessId, setBusinessId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(0);
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    if (!user) {
+      setBusinessId(null);
+      return;
+    }
+    const loadBusiness = async () => {
+      const { data } = await supabase
+        .from("businesses")
+        .select("id")
+        .eq("owner_id", user.id)
+        .maybeSingle();
+      setBusinessId(data?.id ?? null);
+    };
+    void loadBusiness();
+  }, [user]);
 
   useEffect(() => {
     if (open && messages.length === 0) {
@@ -66,35 +77,130 @@ const ChatWidget = () => {
         },
       ]);
     }
-  }, [open]);
+  }, [open, messages.length]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, typing]);
 
-  const sendMessage = () => {
+  const sendMessage = useCallback(async () => {
     const text = input.trim();
     if (!text) return;
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+    const previousMessages = messages
+      .filter((m) => !m.isError)
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
 
     const userMsg: Message = { id: ++idRef.current, role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setTyping(true);
 
-    setTimeout(() => {
-      const isShowProducts = text.toLowerCase().includes("show products");
-      const reply: Message = {
-        id: ++idRef.current,
-        role: "assistant",
-        content: isShowProducts
-          ? "Here are some products you might like:"
-          : "I'm still being set up! Check back soon.",
-        showProducts: isShowProducts,
-      };
+    if (!supabaseUrl || !anonKey) {
       setTyping(false);
-      setMessages((prev) => [...prev, reply]);
-    }, 1200);
-  };
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: ++idRef.current,
+          role: "assistant",
+          content: "Chat is not configured (missing Supabase URL or anon key).",
+          isError: true,
+        },
+      ]);
+      return;
+    }
+
+    if (!businessId) {
+      setTyping(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: ++idRef.current,
+          role: "assistant",
+          content:
+            user == null
+              ? "Please sign in to use the shopping assistant."
+              : "We couldn't find your store. Try refreshing the page.",
+          isError: true,
+        },
+      ]);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${supabaseUrl}/functions/v1/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: anonKey,
+        },
+        body: JSON.stringify({
+          message: text,
+          business_id: businessId,
+          conversation_history: previousMessages,
+        }),
+      });
+
+      let data: { reply?: string; products?: ChatProduct[]; error?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
+      }
+
+      if (!res.ok) {
+        const errText =
+          typeof data.error === "string" && data.error
+            ? data.error
+            : `Something went wrong (${res.status}). Please try again.`;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: ++idRef.current,
+            role: "assistant",
+            content: errText,
+            isError: true,
+          },
+        ]);
+        return;
+      }
+
+      const reply =
+        typeof data.reply === "string" && data.reply.trim()
+          ? data.reply.trim()
+          : "I didn't get a reply. Please try again.";
+
+      const products = Array.isArray(data.products) ? data.products : [];
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: ++idRef.current,
+          role: "assistant",
+          content: reply,
+          products: products.length > 0 ? products : undefined,
+        },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: ++idRef.current,
+          role: "assistant",
+          content: "Network error. Check your connection and try again.",
+          isError: true,
+        },
+      ]);
+    } finally {
+      setTyping(false);
+    }
+  }, [input, messages, businessId, user]);
 
   const panelClasses = isMobile
     ? "fixed inset-0 z-50 flex flex-col bg-card animate-scale-in"
@@ -102,7 +208,6 @@ const ChatWidget = () => {
 
   return (
     <>
-      {/* FAB */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
@@ -114,10 +219,8 @@ const ChatWidget = () => {
         </button>
       )}
 
-      {/* Panel */}
       {open && (
         <div className={panelClasses}>
-          {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/50">
             <div className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center">
@@ -136,7 +239,6 @@ const ChatWidget = () => {
             </Button>
           </div>
 
-          {/* Messages */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
             {messages.map((msg) => (
               <div key={msg.id}>
@@ -147,19 +249,32 @@ const ChatWidget = () => {
                     className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm ${
                       msg.role === "user"
                         ? "bg-primary text-primary-foreground rounded-br-md"
-                        : "bg-secondary text-secondary-foreground rounded-bl-md"
+                        : msg.isError
+                          ? "bg-destructive/10 text-destructive border border-destructive/20 rounded-bl-md"
+                          : "bg-secondary text-secondary-foreground rounded-bl-md"
                     }`}
                   >
                     {msg.content}
                   </div>
                 </div>
-                {msg.showProducts && (
-                  <div className="flex flex-col gap-3 mt-3">
-                    {SAMPLE_PRODUCTS.map((p, i) => (
-                      <ProductCard key={i} {...p} />
-                    ))}
-                  </div>
-                )}
+                {msg.role === "assistant" &&
+                  msg.products &&
+                  msg.products.length > 0 && (
+                    <div className="flex flex-col gap-3 mt-3">
+                      {msg.products.map((p) => (
+                        <ProductCard
+                          key={p.id}
+                          name={p.name}
+                          category={p.category}
+                          price={p.price}
+                          description={p.description}
+                          image_url={p.image_url}
+                          stock_status={p.stock_status}
+                          promo={p.promo}
+                        />
+                      ))}
+                    </div>
+                  )}
               </div>
             ))}
             {typing && (
@@ -171,16 +286,26 @@ const ChatWidget = () => {
             )}
           </div>
 
-          {/* Input */}
           <div className="border-t border-border p-3 flex gap-2">
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void sendMessage();
+                }
+              }}
               placeholder="Type a message..."
               className="flex-1 h-9 text-sm"
+              disabled={typing}
             />
-            <Button size="icon" className="h-9 w-9 shrink-0" onClick={sendMessage}>
+            <Button
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              onClick={() => void sendMessage()}
+              disabled={typing}
+            >
               <Send className="h-4 w-4" />
             </Button>
           </div>
