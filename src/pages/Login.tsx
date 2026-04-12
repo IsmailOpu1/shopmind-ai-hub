@@ -4,9 +4,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Brain } from "lucide-react";
+import { Brain, Zap, Globe, MessageSquare, TrendingUp } from "lucide-react";
+import { useEffect } from "react";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -15,6 +15,11 @@ const Login = () => {
   const { signIn } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [featuresVisible, setFeaturesVisible] = useState(false);
+
+  useEffect(() => {
+    setFeaturesVisible(true);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,38 +34,132 @@ const Login = () => {
     }
   };
 
+  const features = [
+    { icon: Zap, text: "RAG-powered product recommendations" },
+    { icon: Globe, text: "Embeddable on any website" },
+    { icon: MessageSquare, text: "Real-time customer conversations" },
+    { icon: TrendingUp, text: "Boost conversions automatically" },
+  ];
+
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <Card className="w-full max-w-md border-border bg-card">
-        <CardHeader className="space-y-2 text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-            <Brain className="h-6 w-6 text-primary" />
+    <div className="flex min-h-screen overflow-x-hidden">
+      {/* Left Side - 60% width */}
+      <div className="hidden lg:flex lg:w-[60%] relative overflow-hidden" style={{ backgroundColor: "#0A0F1E" }}>
+        {/* Grid pattern overlay */}
+        <div className="absolute inset-0 grid-pattern opacity-50" />
+
+        {/* Animated gradient mesh - more visible */}
+        <div className="absolute inset-0 opacity-50">
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-900/70 via-purple-900/70 to-blue-900/70 animate-gradient-shift" />
+        </div>
+
+        {/* Floating dot particles drifting upward */}
+        <div className="absolute inset-0">
+          {[...Array(15)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute rounded-full bg-blue-400/30 animate-float-up"
+              style={{
+                width: Math.random() * 6 + 2 + "px",
+                height: Math.random() * 6 + 2 + "px",
+                left: Math.random() * 100 + "%",
+                animationDelay: Math.random() * 10 + "s",
+                animationDuration: Math.random() * 15 + 20 + "s",
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 flex flex-col justify-between px-16 py-20 h-full">
+          {/* Bottom glowing orb */}
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 bottom-glow-orb" />
+
+          <div className="mb-8 relative">
+            <div className="flex items-center gap-4 mb-4">
+              <Brain className="h-12 w-12 text-blue-400" />
+              <h1 className="text-7xl font-bold text-gradient-blue-purple text-gradient-glow">ShopMind AI</h1>
+            </div>
+            <p className="text-2xl text-gray-300">The AI shopkeeper for your store</p>
           </div>
-          <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
-          <CardDescription>Sign in to ShopMind AI</CardDescription>
-        </CardHeader>
-        <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4">
+
+          <div className="space-y-4 my-12">
+            {features.map((feature, index) => (
+              <div
+                key={index}
+                className="flex items-center gap-4 text-white/90 animate-fade-in feature-pill"
+                style={{
+                  animationDelay: `${index * 0.15}s`,
+                  opacity: featuresVisible ? 1 : 0,
+                  transform: featuresVisible ? "translateX(0)" : "translateX(-20px)",
+                }}
+              >
+                <feature.icon className="h-6 w-6" />
+                <span className="text-lg">{feature.text}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-12">
+            <p className="text-sm text-gray-400">Trusted by smart store owners</p>
+          </div>
+        </div>
+
+        {/* Glowing vertical divider */}
+        <div className="absolute right-0 top-0 bottom-0 w-px divider-gradient" />
+      </div>
+
+      {/* Right Side - 40% width */}
+      <div className="w-full lg:w-[40%] flex items-center justify-center px-6 py-12 overflow-x-hidden" style={{ backgroundColor: "#111827" }}>
+        <div className="w-full max-w-md animate-fade-in rounded-2xl form-card-enhanced overflow-hidden">
+          <div className="mb-8">
+            <h2 className="text-4xl font-bold text-white mb-2">Welcome back</h2>
+            <p className="text-gray-400">Sign in to ShopMind AI</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <Label htmlFor="email" className="text-gray-300">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="input-enhanced text-white placeholder:text-gray-500"
+              />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <Label htmlFor="password" className="text-gray-300">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="input-enhanced text-white placeholder:text-gray-500"
+              />
             </div>
-          </CardContent>
-          <CardFooter className="flex flex-col gap-4">
-            <Button type="submit" className="w-full" disabled={loading}>
+
+            <Button
+              type="submit"
+              className="w-full button-shimmer text-white font-medium"
+              disabled={loading}
+            >
               {loading ? "Signing in..." : "Log In"}
             </Button>
-            <p className="text-sm text-muted-foreground">
+
+            <p className="text-sm text-gray-400 text-center">
               Don't have an account?{" "}
-              <Link to="/signup" className="text-primary hover:underline">Sign up</Link>
+              <Link to="/signup" className="text-blue-400 hover:text-blue-300 hover:underline transition-colors">
+                Sign up
+              </Link>
             </p>
-          </CardFooter>
-        </form>
-      </Card>
+          </form>
+        </div>
+      </div>
     </div>
   );
 };

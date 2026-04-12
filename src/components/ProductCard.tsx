@@ -22,7 +22,7 @@ const ProductCard = ({
   promo,
 }: ProductCardProps) => {
   return (
-    <div className="max-w-[300px] w-full rounded-xl border border-border bg-card shadow-md overflow-hidden">
+    <div className="max-w-[300px] w-full rounded-xl border border-border bg-card shadow-md overflow-hidden product-card-hover transition-all duration-300">
       {/* Image */}
       <div className="h-40 bg-secondary flex items-center justify-center overflow-hidden">
         {image_url ? (

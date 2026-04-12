@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Upload, Trash2, FileSpreadsheet, X, Package } from "lucide-react";
+import { Upload, Trash2, FileSpreadsheet, X, Package, CheckCircle2, ArrowUpRight } from "lucide-react";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import EmptyState from "@/components/EmptyState";
 import Papa from "papaparse";
@@ -31,6 +31,27 @@ interface Product {
 }
 
 const EXPECTED_COLS = ["name", "description", "price", "image_url", "category", "stock_status", "promo"];
+
+const getCategoryColor = (category: string | null) => {
+  if (!category) return "bg-gray-500/20 text-gray-400 border-gray-500/30";
+  const lower = category.toLowerCase();
+  if (lower.includes("footwear") || lower.includes("shoe") || lower.includes("boot") || lower.includes("sneaker")) {
+    return "bg-blue-500/20 text-blue-400 border-blue-500/30";
+  }
+  if (lower.includes("top") || lower.includes("shirt") || lower.includes("t-shirt") || lower.includes("blouse") || lower.includes("jacket")) {
+    return "bg-purple-500/20 text-purple-400 border-purple-500/30";
+  }
+  if (lower.includes("bottom") || lower.includes("pant") || lower.includes("jean") || lower.includes("skirt") || lower.includes("short")) {
+    return "bg-cyan-500/20 text-cyan-400 border-cyan-500/30";
+  }
+  if (lower.includes("outerwear") || lower.includes("coat") || lower.includes("parka") || lower.includes("windbreaker")) {
+    return "bg-orange-500/20 text-orange-400 border-orange-500/30";
+  }
+  if (lower.includes("accessor") || lower.includes("bag") || lower.includes("belt") || lower.includes("hat") || lower.includes("scarf")) {
+    return "bg-green-500/20 text-green-400 border-green-500/30";
+  }
+  return "bg-gray-500/20 text-gray-400 border-gray-500/30";
+};
 
 const Products = () => {
   const { user } = useAuth();
@@ -234,94 +255,115 @@ const Products = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <h1 className="text-2xl font-bold">Products</h1>
-        {products.length > 0 && (
-          <Button variant="destructive" size="sm" onClick={clearAll}>
-            <X className="mr-2 h-4 w-4" />
-            Clear All Products
-          </Button>
-        )}
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+            Products
+          </h1>
+          <p className="text-muted-foreground mt-1">Manage your product catalog</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {products.length > 0 && (
+            <Badge variant="outline" className="text-sm px-3 py-1">
+              {products.length} products
+            </Badge>
+          )}
+          {products.length > 0 && (
+            <Button variant="outline" size="sm" onClick={clearAll} className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:text-red-300">
+              <X className="mr-2 h-4 w-4" />
+              Clear All Products
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Upload zone */}
-      <Card>
-        <CardContent className="p-0">
-          <div
-            className={`flex flex-col items-center justify-center gap-3 p-6 sm:p-10 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
-              dragOver
-                ? "border-primary bg-primary/10"
-                : "border-border hover:border-primary/50"
-            }`}
-            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
-            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); }}
-            onDrop={onDrop}
-            onClick={() => document.getElementById("product-file-input")?.click()}
-          >
-            <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-              <Upload className="h-6 w-6 text-primary" />
-            </div>
-            <div className="text-center">
-              <p className="font-medium">
-                {uploading ? "Uploading..." : "Drag & drop your file here, or click to browse"}
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Supports CSV and XLSX files
-              </p>
-            </div>
-            {selectedFile && (
-              <div className="flex items-center gap-2 text-sm text-primary">
-                <FileSpreadsheet className="h-4 w-4" />
-                <span>{selectedFile.name} ({selectedFile.size})</span>
-              </div>
-            )}
-            <div className="flex items-center gap-2 text-xs text-muted-foreground text-center">
-              <FileSpreadsheet className="h-4 w-4 shrink-0" />
-              <span>Columns: name, description, price, image_url, category, stock_status, promo</span>
-            </div>
-            <input
-              id="product-file-input"
-              type="file"
-              accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              className="hidden"
-              onChange={onFileSelect}
-              disabled={uploading}
-            />
+      {!selectedFile ? (
+        <div
+          className={`products-upload-zone flex items-center justify-center gap-4 px-4 py-4 cursor-pointer rounded-xl ${
+            dragOver ? "drag-over" : ""
+          }`}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
+          onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); }}
+          onDrop={onDrop}
+          onClick={() => document.getElementById("product-file-input")?.click()}
+        >
+          <div className={`h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 ${dragOver ? "products-upload-icon" : ""}`}>
+            <Upload className="h-4 w-4 text-blue-400" />
           </div>
-        </CardContent>
-      </Card>
+          <p className="text-sm font-medium text-white">
+            {uploading ? "Uploading..." : "Drop CSV or XLSX here or click to browse"}
+          </p>
+          <div className="flex items-center gap-1 shrink-0">
+            <Badge variant="outline" className="bg-blue-500/10 border-blue-500/30 text-blue-400 text-xs px-2 py-0.5">CSV</Badge>
+            <Badge variant="outline" className="bg-purple-500/10 border-purple-500/30 text-purple-400 text-xs px-2 py-0.5">XLSX</Badge>
+          </div>
+          <input
+            id="product-file-input"
+            type="file"
+            accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="hidden"
+            onChange={onFileSelect}
+            disabled={uploading}
+          />
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 px-4 py-3 bg-green-500/10 border border-green-500/30 rounded-xl">
+          <CheckCircle2 className="h-5 w-5 text-green-400 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-white truncate">{selectedFile.name}</p>
+            <p className="text-xs text-muted-foreground">{selectedFile.size}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-red-400 shrink-0"
+            onClick={() => setSelectedFile(null)}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
       {/* Products table */}
       {products.length > 0 && (
-        <Card>
+        <Card className="border-border/50">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader>
+                <TableHeader className="products-table-header">
                   <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Price</TableHead>
-                    <TableHead>Stock Status</TableHead>
+                    <TableHead className="text-xs uppercase text-muted-foreground font-semibold">Name</TableHead>
+                    <TableHead className="text-xs uppercase text-muted-foreground font-semibold">Category</TableHead>
+                    <TableHead className="text-xs uppercase text-muted-foreground font-semibold">Price</TableHead>
+                    <TableHead className="text-xs uppercase text-muted-foreground font-semibold">Stock Status</TableHead>
                     <TableHead className="w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {products.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-medium whitespace-nowrap">{p.name}</TableCell>
+                    <TableRow key={p.id} className="products-table-row border-border/50">
+                      <TableCell className="products-name whitespace-nowrap">{p.name}</TableCell>
                       <TableCell>
                         {p.category && (
-                          <Badge variant="secondary">{p.category}</Badge>
+                          <Badge 
+                            variant="outline" 
+                            className={getCategoryColor(p.category)}
+                          >
+                            {p.category}
+                          </Badge>
                         )}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap">
+                      <TableCell className="products-price whitespace-nowrap">
                         {p.price != null ? `$${Number(p.price).toFixed(2)}` : "—"}
                       </TableCell>
                       <TableCell>
                         <Badge
-                          variant={p.stock_status === "in_stock" ? "default" : "destructive"}
+                          variant="outline"
+                          className={p.stock_status === "in_stock" ? "products-stock-in" : "products-stock-out"}
                         >
+                          <span className={`h-2 w-2 rounded-full mr-2 ${p.stock_status === "in_stock" ? "bg-green-400" : "bg-red-400"}`} />
                           {p.stock_status === "in_stock" ? "In Stock" : "Out of Stock"}
                         </Badge>
                       </TableCell>
@@ -329,9 +371,10 @@ const Products = () => {
                         <Button
                           variant="ghost"
                           size="icon"
+                          className="products-delete-btn h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-500/10"
                           onClick={() => deleteProduct(p.id)}
                         >
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -344,11 +387,21 @@ const Products = () => {
       )}
 
       {products.length === 0 && (
-        <EmptyState
-          icon={Package}
-          title="No products yet"
-          description="Upload a CSV or XLSX file to add your products catalog."
-        />
+        <div className="flex flex-col items-center justify-center py-16 px-4">
+          <div className="w-24 h-24 rounded-full bg-blue-500/10 flex items-center justify-center mb-6 relative">
+            <Package className="h-12 w-12 text-blue-400" />
+            <div className="absolute -top-2 -right-2">
+              <ArrowUpRight className="h-6 w-6 text-purple-400" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-2">No products yet</h2>
+          <p className="text-muted-foreground text-center max-w-md">
+            Upload a CSV or XLSX file to get started
+          </p>
+          <div className="mt-6 text-muted-foreground text-sm">
+            <span className="text-blue-400">↑</span> Use the upload zone above
+          </div>
+        </div>
       )}
     </div>
   );
