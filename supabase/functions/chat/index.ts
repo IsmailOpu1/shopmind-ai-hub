@@ -11,7 +11,7 @@ const GEMINI_EMBED_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent";
 
 const GEMINI_CHAT_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent";
 
 const SYSTEM_SHOPKEEPER = `You are Alex, a sharp and friendly shopping assistant for this store.
 

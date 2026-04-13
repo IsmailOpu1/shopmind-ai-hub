@@ -310,8 +310,8 @@ const ChatWidget = () => {
 
   // Calculate panel position based on bubble position with boundary checking
   const getPanelPosition = () => {
-    const PANEL_WIDTH = 380;
-    const PANEL_HEIGHT = 560;
+    const PANEL_WIDTH = 560;
+    const PANEL_HEIGHT = 780;
     const FAB_SIZE = 56;
     const MARGIN = 16;
     const screenWidth = window.innerWidth;
@@ -417,8 +417,8 @@ const ChatWidget = () => {
             style={{
               position: 'fixed',
               ...panelPosition,
-              width: isMobile ? '100%' : '380px',
-              height: isMobile ? '100%' : '560px',
+              width: isMobile ? '100%' : '560px',
+              height: isMobile ? '100%' : '780px',
               zIndex: 50,
               borderRadius: isMobile ? '24px 24px 0 0' : '24px',
               backgroundColor: '#0d1117',
