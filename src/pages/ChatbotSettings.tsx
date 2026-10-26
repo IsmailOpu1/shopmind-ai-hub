@@ -14,7 +14,8 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Save, Bot, MessageCircle, Palette, Copy, CheckCircle2, Loader2, Code } from "lucide-react";
+import { Save, Bot, MessageCircle, Palette, Copy, CheckCircle2, Loader2, Code, Coins, PanelRight } from "lucide-react";
+import { CURRENCIES } from "@/lib/utils";
 import LoadingSpinner from "@/components/LoadingSpinner";
 
 const ChatbotSettings = () => {
@@ -25,6 +26,8 @@ const ChatbotSettings = () => {
   const [botName, setBotName] = useState("ShopMind AI");
   const [greeting, setGreeting] = useState("Hi! How can I help you today?");
   const [primaryColor, setPrimaryColor] = useState("#1E40AF");
+  const [fabPosition, setFabPosition] = useState("bottom-right");
+  const [currency, setCurrency] = useState("BDT");
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -37,7 +40,7 @@ const ChatbotSettings = () => {
     const fetchSettings = async () => {
       const { data, error } = await supabase
         .from("businesses")
-        .select("id, bot_name, greeting, primary_color")
+        .select("id, bot_name, greeting, primary_color, fab_position, currency")
         .eq("owner_id", user.id)
         .maybeSingle();
 
@@ -45,6 +48,8 @@ const ChatbotSettings = () => {
         setBotName(data.bot_name ?? "ShopMind AI");
         setGreeting(data.greeting ?? "Hi! How can I help you today?");
         setPrimaryColor(data.primary_color && data.primary_color.trim() !== "" ? data.primary_color : "#1E40AF");
+        setFabPosition(data.fab_position ?? "bottom-right");
+        setCurrency(data.currency ?? "BDT");
         setBusinessId(data.id);
       }
       setLoading(false);
@@ -57,10 +62,28 @@ const ChatbotSettings = () => {
       toast.error("You must be logged in.");
       return;
     }
+    if (!botName.trim() || botName.trim().length > 40) {
+      toast.error("Bot name must be 1-40 characters.");
+      return;
+    }
+    if (greeting.length > 300) {
+      toast.error("Greeting must be 300 characters or fewer.");
+      return;
+    }
+    if (!/^#[0-9A-Fa-f]{6}$/.test(primaryColor)) {
+      toast.error("Primary color must be a hex value like #1E40AF.");
+      return;
+    }
     setSaving(true);
     const { error } = await supabase
       .from("businesses")
-      .update({ bot_name: botName, greeting, primary_color: primaryColor })
+      .update({
+        bot_name: botName.trim(),
+        greeting,
+        primary_color: primaryColor,
+        fab_position: fabPosition,
+        currency,
+      })
       .eq("owner_id", user.id);
 
     if (error) {
@@ -73,11 +96,11 @@ const ChatbotSettings = () => {
 
   if (loading) return <LoadingSpinner message="Loading settings..." />;
 
+  // Name, greeting, colour, position and currency are loaded from these settings at runtime.
   const embedCode = `<script
-  src="https://yourdomain.com/embed.js"
-  data-business-id="${businessId || 'YOUR_BUSINESS_ID'}"
-  data-bot-name="${botName}"
-  data-primary-color="${primaryColor}">
+  src="${window.location.origin}/embed.js"
+  data-business-id="${businessId || "YOUR_BUSINESS_ID"}"
+  defer>
 </script>`;
 
   const handleCopy = async () => {
@@ -161,6 +184,43 @@ const ChatbotSettings = () => {
                 </div>
               </div>
 
+              {/* Position + Currency */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2 text-sm font-medium">
+                    <PanelRight className="h-4 w-4 text-blue-400" />
+                    Button Position
+                  </Label>
+                  <Select value={fabPosition} onValueChange={setFabPosition}>
+                    <SelectTrigger className="chatbot-input-dark">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bottom-right">Bottom right</SelectItem>
+                      <SelectItem value="bottom-left">Bottom left</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2 text-sm font-medium">
+                    <Coins className="h-4 w-4 text-blue-400" />
+                    Currency
+                  </Label>
+                  <Select value={currency} onValueChange={setCurrency}>
+                    <SelectTrigger className="chatbot-input-dark">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CURRENCIES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               {/* Save Button */}
               <Button 
                 onClick={handleSave} 
@@ -220,7 +280,11 @@ const ChatbotSettings = () => {
               </div>
               
               <p className="text-xs text-muted-foreground">
-                Replace <code className="bg-gray-800 px-1 py-0.5 rounded">yourdomain.com</code> with your actual deployed URL
+                Changes you save here apply to the widget automatically. Optional attributes:{" "}
+                <code className="bg-gray-800 px-1 py-0.5 rounded">data-proactive-delay="off"</code> turns off the
+                30-second help prompt, and{" "}
+                <code className="bg-gray-800 px-1 py-0.5 rounded">data-enable-cart="true"</code> shows an Add to cart
+                button that fires a <code className="bg-gray-800 px-1 py-0.5 rounded">shopmind:add-to-cart</code> event.
               </p>
             </CardContent>
           </Card>

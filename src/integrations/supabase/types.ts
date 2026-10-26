@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           bot_name: string
           created_at: string
+          currency: string
           daily_message_limit: number
           fab_position: string | null
           greeting: string
@@ -29,6 +30,7 @@ export type Database = {
         Insert: {
           bot_name?: string
           created_at?: string
+          currency?: string
           daily_message_limit?: number
           fab_position?: string | null
           greeting?: string
@@ -40,6 +42,7 @@ export type Database = {
         Update: {
           bot_name?: string
           created_at?: string
+          currency?: string
           daily_message_limit?: number
           fab_position?: string | null
           greeting?: string
@@ -88,6 +91,7 @@ export type Database = {
           conversation_id: string
           created_at: string
           id: string
+          product_ids: string[]
           role: string
         }
         Insert: {
@@ -95,6 +99,7 @@ export type Database = {
           conversation_id: string
           created_at?: string
           id?: string
+          product_ids?: string[]
           role: string
         }
         Update: {
@@ -102,6 +107,7 @@ export type Database = {
           conversation_id?: string
           created_at?: string
           id?: string
+          product_ids?: string[]
           role?: string
         }
         Relationships: [
@@ -126,6 +132,7 @@ export type Database = {
           image_url: string | null
           name: string
           price: number | null
+          product_url: string | null
           promo: string | null
           stock_status: string
         }
@@ -140,6 +147,7 @@ export type Database = {
           image_url?: string | null
           name: string
           price?: number | null
+          product_url?: string | null
           promo?: string | null
           stock_status?: string
         }
@@ -154,6 +162,7 @@ export type Database = {
           image_url?: string | null
           name?: string
           price?: number | null
+          product_url?: string | null
           promo?: string | null
           stock_status?: string
         }
@@ -180,6 +189,8 @@ export type Database = {
         Args: {
           match_count?: number
           match_threshold?: number
+          max_price?: number
+          min_price?: number
           p_business_id: string
           query_embedding: string
           query_text?: string
@@ -193,6 +204,7 @@ export type Database = {
           image_url: string
           name: string
           price: number
+          product_url: string
           promo: string
           similarity: number
           stock_status: string

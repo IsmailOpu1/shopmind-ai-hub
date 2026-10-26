@@ -17,6 +17,7 @@ import { Upload, Trash2, FileSpreadsheet, X, Package, CheckCircle2, ArrowUpRight
 import LoadingSpinner from "@/components/LoadingSpinner";
 import EmptyState from "@/components/EmptyState";
 import Papa from "papaparse";
+import { formatPrice } from "@/lib/utils";
 import * as XLSX from "xlsx";
 
 interface Product {
@@ -30,7 +31,19 @@ interface Product {
   promo: string | null;
 }
 
-const EXPECTED_COLS = ["name", "description", "price", "image_url", "category", "stock_status", "promo"];
+const EXPECTED_COLS = ["name", "description", "price", "image_url", "category", "stock_status", "promo", "product_url"];
+
+// "৳1,299", "Tk 1299.50" or 1299 -> 1299; anything unparseable -> null.
+const parsePrice = (value: unknown): number | null => {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const n = Number(String(value).replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+};
+
+const parseUrl = (value: unknown): string | null => {
+  const v = value ? String(value).trim() : "";
+  return /^https?:\/\//i.test(v) ? v : null;
+};
 
 // The database only accepts "in_stock" / "out_of_stock"; spreadsheets use many spellings.
 const normalizeStockStatus = (value: unknown): "in_stock" | "out_of_stock" => {
@@ -66,6 +79,7 @@ const getCategoryColor =(category: string | null) => {
 const Products = () => {
   const { user } = useAuth();
   const [businessId, setBusinessId] = useState<string | null>(null);
+  const [currency, setCurrency] = useState("BDT");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -86,11 +100,12 @@ const Products = () => {
     const init = async () => {
       const { data } = await supabase
         .from("businesses")
-        .select("id")
+        .select("id, currency")
         .eq("owner_id", user.id)
         .maybeSingle();
       if (data) {
         setBusinessId(data.id);
+        setCurrency(data.currency);
         await fetchProducts(data.id);
       }
       setLoading(false);
@@ -157,11 +172,12 @@ const Products = () => {
       business_id: businessId,
       name: String(r.name),
       description: r.description ? String(r.description) : null,
-      price: r.price ? Number(r.price) : null,
-      image_url: r.image_url ? String(r.image_url) : null,
+      price: parsePrice(r.price),
+      image_url: parseUrl(r.image_url),
       category: r.category ? String(r.category) : null,
       stock_status: normalizeStockStatus(r.stock_status),
       promo: r.promo ? String(r.promo) : null,
+      product_url: parseUrl(r.product_url),
     }));
 
     const { error } = await supabase.from("products").insert(toInsert);
@@ -318,7 +334,14 @@ const Products = () => {
             disabled={uploading}
           />
         </div>
-      ) : (
+      ) : null}
+      {!selectedFile && (
+        <p className="text-xs text-muted-foreground -mt-2">
+          Columns: <code>name</code> (required), <code>description</code>, <code>price</code>, <code>category</code>,{" "}
+          <code>stock_status</code>, <code>promo</code>, <code>image_url</code>, <code>product_url</code>
+        </p>
+      )}
+      {!selectedFile ? null : (
         <div className="flex items-center gap-3 px-4 py-3 bg-green-500/10 border border-green-500/30 rounded-xl">
           <CheckCircle2 className="h-5 w-5 text-green-400 shrink-0" />
           <div className="flex-1 min-w-0">
@@ -366,7 +389,7 @@ const Products = () => {
                         )}
                       </TableCell>
                       <TableCell className="products-price whitespace-nowrap">
-                        {p.price != null ? `$${Number(p.price).toFixed(2)}` : "—"}
+                        {p.price != null ? formatPrice(p.price, currency) : "—"}
                       </TableCell>
                       <TableCell>
                         <Badge

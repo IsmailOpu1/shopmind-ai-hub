@@ -1,14 +1,25 @@
 <!DOCTYPE html>
-<html>
-<head><title>ShopMind AI Demo</title></head>
-<body>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ShopMind AI Demo Store</title>
+</head>
+<body style="font-family: system-ui, sans-serif; margin: 40px;">
   <h1>My Store</h1>
-  <script 
-    src="/embed.js"
-    data-business-id="491b3c9c-41cd-4bc8-8a16-1e4965a85667"
-    data-bot-name="My Store Assistant"
-    data-primary-color="#1E40AF"
-    data-position="bottom-right">
+  <p>Demo storefront. The widget loads the bot name, greeting, colour, position and
+    currency saved in Chatbot Settings. Add <code>?nudge=fast</code> to the URL to see
+    the proactive prompt after 3 seconds instead of 30.</p>
+  <script>
+    window.addEventListener("shopmind:add-to-cart", function (e) {
+      console.log("[demo] add to cart", e.detail);
+    });
+    var s = document.createElement("script");
+    s.src = "/embed.js";
+    s.setAttribute("data-business-id", "491b3c9c-41cd-4bc8-8a16-1e4965a85667");
+    s.setAttribute("data-enable-cart", "true");
+    if (location.search.indexOf("nudge=fast") >= 0) s.setAttribute("data-proactive-delay", "3");
+    document.body.appendChild(s);
   </script>
 </body>
 </html>

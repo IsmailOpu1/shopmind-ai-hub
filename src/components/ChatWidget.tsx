@@ -16,6 +16,7 @@ interface ChatProduct {
   image_url: string | null;
   stock_status: string;
   promo: string | null;
+  product_url: string | null;
 }
 
 interface Message {
@@ -26,12 +27,16 @@ interface Message {
   isError?: boolean;
 }
 
+const DEFAULT_GREETING = "Hi! I'm your shopping assistant. What are you looking for today?";
+
 const ChatWidget = () => {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [businessName, setBusinessName] = useState<string>("");
   const [primaryColor, setPrimaryColor] = useState("#1E40AF");
+  const [greeting, setGreeting] = useState(DEFAULT_GREETING);
+  const [currency, setCurrency] = useState("BDT");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
@@ -79,12 +84,14 @@ const ChatWidget = () => {
     const loadBusiness = async () => {
       const { data } = await supabase
         .from("businesses")
-        .select("id, name, primary_color")
+        .select("id, bot_name, greeting, primary_color, currency")
         .eq("owner_id", user.id)
         .maybeSingle();
       setBusinessId(data?.id ?? null);
-      setBusinessName(data?.name ?? "ShopMind AI");
+      setBusinessName(data?.bot_name ?? "ShopMind AI");
       setPrimaryColor(data?.primary_color ?? "#1E40AF");
+      setGreeting(data?.greeting || DEFAULT_GREETING);
+      setCurrency(data?.currency ?? "BDT");
     };
     void loadBusiness();
   }, [user]);
@@ -95,11 +102,11 @@ const ChatWidget = () => {
         {
           id: ++idRef.current,
           role: "assistant",
-          content: "Hi! I'm your shopping assistant. What are you looking for today?",
+          content: greeting,
         },
       ]);
     }
-  }, [open, messages.length]);
+  }, [open, messages.length, greeting]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -477,6 +484,8 @@ const ChatWidget = () => {
                             image_url={p.image_url}
                             stock_status={p.stock_status}
                             promo={p.promo}
+                            product_url={p.product_url}
+                            currency={currency}
                           />
                         ))}
                       </div>
