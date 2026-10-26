@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ShoppingCart, Eye } from "lucide-react";
+import { ExternalLink } from "lucide-react";
+import { formatPrice } from "@/lib/utils";
 
 interface ProductCardProps {
   name: string;
@@ -10,6 +11,8 @@ interface ProductCardProps {
   image_url?: string | null;
   stock_status?: string;
   promo?: string | null;
+  product_url?: string | null;
+  currency?: string;
 }
 
 const ProductCard = ({
@@ -20,7 +23,10 @@ const ProductCard = ({
   image_url,
   stock_status = "in_stock",
   promo,
+  product_url,
+  currency = "BDT",
 }: ProductCardProps) => {
+  const link = product_url && /^https?:\/\//i.test(product_url) ? product_url : null;
   return (
     <div className="max-w-[300px] w-full rounded-xl border border-border bg-card shadow-md overflow-hidden product-card-hover transition-all duration-300">
       {/* Image */}
@@ -66,7 +72,7 @@ const ProductCard = ({
         {/* Price */}
         {price != null && (
           <p className="text-lg font-bold text-primary">
-            ${Number(price).toFixed(2)}
+            {formatPrice(price, currency)}
           </p>
         )}
 
@@ -78,16 +84,16 @@ const ProductCard = ({
         )}
 
         {/* Actions */}
-        <div className="flex gap-2 pt-1">
-          <Button size="sm" variant="outline" className="flex-1 text-xs h-8">
-            <Eye className="mr-1 h-3 w-3" />
-            View
-          </Button>
-          <Button size="sm" className="flex-1 text-xs h-8">
-            <ShoppingCart className="mr-1 h-3 w-3" />
-            Add to Cart
-          </Button>
-        </div>
+        {link && (
+          <div className="flex gap-2 pt-1">
+            <Button asChild size="sm" variant="outline" className="flex-1 text-xs h-8">
+              <a href={link} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="mr-1 h-3 w-3" />
+                View product
+              </a>
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
