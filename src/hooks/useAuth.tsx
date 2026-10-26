@@ -18,50 +18,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const ensureBusinessExists = async (userId: string, businessName = "My Business") => {
-    const { data } = await supabase
-      .from("businesses")
-      .select("id")
-      .eq("owner_id", userId)
-      .maybeSingle();
-    if (!data) {
-      await supabase.from("businesses").insert({
-        owner_id: userId,
-        name: businessName,
-        bot_name: "ShopMind AI",
-        greeting: "Hi! How can I help you today?",
-      });
-    }
-  };
-
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
-      if (session?.user) {
-        setTimeout(() => ensureBusinessExists(session.user.id), 0);
-      }
     });
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
-      if (session?.user) {
-        ensureBusinessExists(session.user.id);
-      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
   const signUp = async (email: string, password: string, businessName: string) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    // The business row is created by the on_auth_user_created database
+    // trigger, which reads business_name from the user metadata.
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { business_name: businessName.trim() },
+        emailRedirectTo: `${window.location.origin}/login`,
+      },
+    });
     if (error) throw error;
-    // Business creation is handled by onAuthStateChange when the user
-    // actually has an authenticated session (after email confirmation + login).
-    // Calling it here would fail RLS since there's no session yet.
   };
 
   const signIn = async (email: string, password: string) => {

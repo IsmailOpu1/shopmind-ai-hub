@@ -13,7 +13,22 @@ const GEMINI_EMBED_URL =
 const GEMINI_CHAT_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent";
 
-const SYSTEM_SHOPKEEPER = `You are Alex, a friendly and knowledgeable shopping assistant for this store.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SESSION_RE = /^[A-Za-z0-9_-]{8,100}$/;
+const MAX_MESSAGE_CHARS = 500;
+const HISTORY_TURNS = 6;
+
+const RATE_LIMIT_MESSAGES: Record<string, string> = {
+  session_limit:
+    "You've reached the message limit for this chat. Please refresh the page to start a new one.",
+  visitor_limit:
+    "You're sending messages too quickly. Please try again in a little while.",
+  business_limit:
+    "Our assistant is very busy right now. Please try again later.",
+};
+
+const shopkeeperPrompt = (botName: string) => `You are ${botName}, a friendly and knowledgeable shopping assistant for this store.
 
 PERSONALITY:
 - Warm, confident, and concise
@@ -95,28 +110,45 @@ async function embedUserMessage(
   return values;
 }
 
-function toGeminiRole(role: string): "user" | "model" | null {
-  const r = role.trim().toLowerCase();
-  if (r === "system") return null;
-  if (r === "assistant" || r === "model") return "model";
-  return "user";
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
+async function hashIp(req: Request, salt: string): Promise<string | null> {
+  const forwarded = req.headers.get("x-forwarded-for") ?? "";
+  const ip = forwarded.split(",")[0].trim() ||
+    req.headers.get("cf-connecting-ip") || "";
+  if (!ip) return null;
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${salt}:${ip}`),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// History comes from the database, never from the client, so shoppers can't
+// forge earlier assistant turns.
 function buildGeminiContents(
   history: ChatMessage[],
   message: string,
 ): Array<{ role: "user" | "model"; parts: { text: string }[] }> {
   const contents: Array<{ role: "user" | "model"; parts: { text: string }[] }> =
     [];
-  // Only include last 3 messages from history
-  const recentHistory = history.slice(-3);
-  for (const h of recentHistory) {
-    const gr = toGeminiRole(h.role);
-    if (gr === null) continue;
-    const t = typeof h.content === "string" ? h.content.trim() : "";
+  for (const h of history) {
+    const t = h.content.trim();
     if (!t) continue;
-    contents.push({ role: gr, parts: [{ text: t }] });
+    contents.push({
+      role: h.role === "assistant" ? "model" : "user",
+      parts: [{ text: t }],
+    });
   }
+  // Gemini expects the conversation to start with a user turn.
+  while (contents.length > 0 && contents[0].role !== "user") contents.shift();
   contents.push({ role: "user", parts: [{ text: message }] });
   return contents;
 }
@@ -183,111 +215,101 @@ Deno.serve(async (req: Request) => {
   }
 
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: "Method not allowed" }, 405);
   }
 
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
-  if (!geminiKey) {
-    return new Response(JSON.stringify({ error: "Missing GEMINI_API_KEY" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !serviceKey) {
-    return new Response(
-      JSON.stringify({ error: "Missing Supabase configuration" }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      },
-    );
+  if (!geminiKey || !supabaseUrl || !serviceKey) {
+    console.error("chat: missing GEMINI_API_KEY or Supabase configuration");
+    return json({ error: "Assistant is not configured" }, 500);
   }
+  const ipSalt = Deno.env.get("IP_HASH_SALT") ?? serviceKey;
 
   let body: {
-    message?: string;
-    business_id?: string;
-    session_id?: string;
-    conversation_history?: ChatMessage[];
+    message?: unknown;
+    business_id?: unknown;
+    session_id?: unknown;
   };
   try {
     body = await req.json();
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: "Invalid JSON body" }, 400);
   }
 
   const message = typeof body.message === "string" ? body.message.trim() : "";
-  const businessId = body.business_id;
-  const sessionId = body.session_id;
-  const history = Array.isArray(body.conversation_history)
-    ? body.conversation_history
-    : [];
+  const businessId = typeof body.business_id === "string"
+    ? body.business_id.trim()
+    : "";
+  const sessionId = typeof body.session_id === "string"
+    ? body.session_id.trim()
+    : "";
 
   if (!message) {
-    return new Response(JSON.stringify({ error: "message is required" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: "message is required" }, 400);
   }
-  if (!businessId || typeof businessId !== "string") {
-    return new Response(JSON.stringify({ error: "business_id is required" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  if (message.length > MAX_MESSAGE_CHARS) {
+    return json(
+      { error: `Please keep messages under ${MAX_MESSAGE_CHARS} characters.` },
+      400,
+    );
   }
-  if (!sessionId || typeof sessionId !== "string") {
-    return new Response(JSON.stringify({ error: "session_id is required" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  if (!UUID_RE.test(businessId)) {
+    return json({ error: "business_id is invalid" }, 400);
+  }
+  if (!SESSION_RE.test(sessionId)) {
+    return json({ error: "session_id is invalid" }, 400);
   }
 
   try {
     const supabase = createClient(supabaseUrl, serviceKey);
+    const ipHash = await hashIp(req, ipSalt);
 
-    // Rate limiting: check message count per session_id (max 20 messages)
+    const { data: limitReason, error: limitError } = await supabase.rpc(
+      "check_chat_rate_limit",
+      { p_business_id: businessId, p_session_id: sessionId, p_ip_hash: ipHash },
+    );
+    if (limitError) throw new Error(`rate limit check: ${limitError.message}`);
+    if (limitReason === "unknown_business") {
+      return json({ error: "Store not found" }, 404);
+    }
+    if (typeof limitReason === "string") {
+      return json(
+        { error: RATE_LIMIT_MESSAGES[limitReason] ?? "Rate limit exceeded" },
+        429,
+      );
+    }
+
+    const { data: business, error: businessError } = await supabase
+      .from("businesses")
+      .select("bot_name")
+      .eq("id", businessId)
+      .single();
+    if (businessError || !business) {
+      throw new Error(`load business: ${businessError?.message}`);
+    }
+
     const { data: conversation, error: convError } = await supabase
       .from("conversations")
+      .upsert(
+        { business_id: businessId, session_id: sessionId, ip_hash: ipHash },
+        { onConflict: "business_id,session_id" },
+      )
       .select("id")
-      .eq("business_id", businessId)
-      .eq("session_id", sessionId)
       .single();
-
-    let conversationId: string | null = null;
-    if (conversation && !convError) {
-      conversationId = conversation.id;
-      const { count, error: countError } = await supabase
-        .from("messages")
-        .select("*", { count: "exact", head: true })
-        .eq("conversation_id", conversationId);
-
-      if (countError) {
-        return new Response(JSON.stringify({ error: countError.message }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      if (count !== null && count >= 20) {
-        return new Response(
-          JSON.stringify({
-            error: "Rate limit exceeded: maximum 20 messages per session",
-          }),
-          {
-            status: 429,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
-        );
-      }
+    if (convError || !conversation) {
+      throw new Error(`upsert conversation: ${convError?.message}`);
     }
+
+    const { data: recent, error: historyError } = await supabase
+      .from("messages")
+      .select("role, content")
+      .eq("conversation_id", conversation.id)
+      .order("created_at", { ascending: false })
+      .limit(HISTORY_TURNS);
+    if (historyError) throw new Error(`load history: ${historyError.message}`);
+    const history = ((recent ?? []) as ChatMessage[]).reverse();
 
     // Short greeting detection: skip product search for greetings/small talk
     const greetings = ["hi", "hello", "hey", "thanks", "thank you", "okay", "ok", "sure", "bye", "good", "nice", "cool", "great", "awesome", "perfect"];
@@ -304,22 +326,16 @@ Deno.serve(async (req: Request) => {
       const { data: rawMatches, error: rpcError } = await supabase.rpc(
         "match_products",
         {
+          p_business_id: businessId,
           query_embedding: vectorLiteral,
           match_threshold: 0.1,
           match_count: 10,
           query_text: message,
         },
       );
+      if (rpcError) throw new Error(`match_products: ${rpcError.message}`);
 
-      if (rpcError) {
-        return new Response(JSON.stringify({ error: rpcError.message }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const rows = (rawMatches ?? []) as MatchedProduct[];
-      let products = rows.filter((p) => String(p.business_id) === String(businessId));
+      let products = (rawMatches ?? []) as MatchedProduct[];
 
       // Keyword filtering: extract keywords from user message
       const keywords = message
@@ -348,27 +364,21 @@ Deno.serve(async (req: Request) => {
       const outOfStockProducts = products.filter((p) => p.stock_status !== "in_stock");
 
       // Only include out_of_stock products if no in_stock alternatives exist
-      let filteredProducts: MatchedProduct[];
-      if (inStockProducts.length > 0) {
-        filteredProducts = inStockProducts;
-      } else {
-        filteredProducts = outOfStockProducts;
-      }
+      const filteredProducts = inStockProducts.length > 0
+        ? inStockProducts
+        : outOfStockProducts;
 
       topProducts = filteredProducts.slice(0, 2);
     }
 
     const catalogJson = JSON.stringify(
       topProducts.map((p) => ({
-        id: p.id,
         name: p.name,
         description: p.description,
         price: p.price,
-        image_url: p.image_url,
         category: p.category,
         stock_status: p.stock_status,
         promo: p.promo,
-        similarity: p.similarity,
       })),
     );
 
@@ -379,7 +389,7 @@ Deno.serve(async (req: Request) => {
       : "";
 
     const systemWithCatalog =
-      `${SYSTEM_SHOPKEEPER}\n\nThe following products will be automatically displayed as cards to the customer. ` +
+      `${shopkeeperPrompt(business.bot_name)}\n\nThe following products will be automatically displayed as cards to the customer. ` +
       `Do NOT reference them with tags or IDs in your text. Just write natural conversational text describing them by name only.${outOfStockNote}\n\n` +
       `Relevant products for this store (JSON):\n${catalogJson}`;
 
@@ -390,66 +400,21 @@ Deno.serve(async (req: Request) => {
       contents,
     );
 
-    // Ensure conversation exists, create if not
-    let finalConversationId: string;
-    if (conversationId) {
-      finalConversationId = conversationId;
-    } else {
-      const { data: newConv, error: createConvError } = await supabase
-        .from("conversations")
-        .insert({
-          business_id: businessId,
-          session_id: sessionId,
-        })
-        .select("id")
-        .single();
-
-      if (createConvError || !newConv) {
-        return new Response(
-          JSON.stringify({ error: "Failed to create conversation" }),
-          {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
-        );
-      }
-      finalConversationId = newConv.id;
-    }
-
-    // Save user message and assistant reply to messages table
     const { error: insertError } = await supabase.from("messages").insert([
-      {
-        conversation_id: finalConversationId,
-        role: "user",
-        content: message,
-      },
-      {
-        conversation_id: finalConversationId,
-        role: "assistant",
-        content: reply,
-      },
+      { conversation_id: conversation.id, role: "user", content: message },
+      { conversation_id: conversation.id, role: "assistant", content: reply },
     ]);
-
     if (insertError) {
-      // Log error but don't fail the request - message saving is non-critical
-      console.error("Failed to save messages:", insertError.message);
+      // Non-fatal for the shopper, but rate limits depend on these rows.
+      console.error("chat: failed to save messages:", insertError.message);
     }
 
-    return new Response(
-      JSON.stringify({
-        reply,
-        products: topProducts,
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      },
-    );
+    return json({ reply, products: topProducts });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.error("chat:", e instanceof Error ? e.message : String(e));
+    return json(
+      { error: "Sorry, something went wrong. Please try again." },
+      500,
+    );
   }
 });

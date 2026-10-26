@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           bot_name: string
           created_at: string
+          daily_message_limit: number
           fab_position: string | null
           greeting: string
           id: string
@@ -28,6 +29,7 @@ export type Database = {
         Insert: {
           bot_name?: string
           created_at?: string
+          daily_message_limit?: number
           fab_position?: string | null
           greeting?: string
           id?: string
@@ -38,6 +40,7 @@ export type Database = {
         Update: {
           bot_name?: string
           created_at?: string
+          daily_message_limit?: number
           fab_position?: string | null
           greeting?: string
           id?: string
@@ -52,18 +55,21 @@ export type Database = {
           business_id: string
           created_at: string
           id: string
+          ip_hash: string | null
           session_id: string
         }
         Insert: {
           business_id: string
           created_at?: string
           id?: string
+          ip_hash?: string | null
           session_id: string
         }
         Update: {
           business_id?: string
           created_at?: string
           id?: string
+          ip_hash?: string | null
           session_id?: string
         }
         Relationships: [
@@ -114,6 +120,8 @@ export type Database = {
           category: string | null
           created_at: string
           description: string | null
+          embedding: string | null
+          fts: unknown
           id: string
           image_url: string | null
           name: string
@@ -126,6 +134,8 @@ export type Database = {
           category?: string | null
           created_at?: string
           description?: string | null
+          embedding?: string | null
+          fts?: unknown
           id?: string
           image_url?: string | null
           name: string
@@ -138,6 +148,8 @@ export type Database = {
           category?: string | null
           created_at?: string
           description?: string | null
+          embedding?: string | null
+          fts?: unknown
           id?: string
           image_url?: string | null
           name?: string
@@ -160,7 +172,32 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      check_chat_rate_limit: {
+        Args: { p_business_id: string; p_ip_hash: string; p_session_id: string }
+        Returns: string
+      }
+      match_products: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          p_business_id: string
+          query_embedding: string
+          query_text?: string
+        }
+        Returns: {
+          business_id: string
+          category: string
+          created_at: string
+          description: string
+          id: string
+          image_url: string
+          name: string
+          price: number
+          promo: string
+          similarity: number
+          stock_status: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
@@ -179,12 +216,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -208,11 +245,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -233,11 +270,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -258,11 +295,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -275,11 +312,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

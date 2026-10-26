@@ -25,3 +25,9 @@ public/embed.js
 *.njsproj
 *.sln
 *.sw?
+
+# Local environment (use .env.example as the template)
+.env
+.env.*
+!.env.example
+supabase/.temp

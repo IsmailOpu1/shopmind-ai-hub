@@ -4,6 +4,7 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 const GEMINI_EMBED_URL =
@@ -130,6 +131,33 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabase = createClient(supabaseUrl, serviceKey);
+
+  // Only the store owner may (re)embed their catalog — this spends Gemini quota.
+  const token = (req.headers.get("Authorization") ?? "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+  const { data: authData, error: authError } = token
+    ? await supabase.auth.getUser(token)
+    : { data: { user: null }, error: null };
+  if (authError || !authData.user) {
+    return new Response(JSON.stringify({ error: "Sign in required" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const { data: business } = await supabase
+    .from("businesses")
+    .select("id")
+    .eq("id", businessId)
+    .eq("owner_id", authData.user.id)
+    .maybeSingle();
+  if (!business) {
+    return new Response(JSON.stringify({ error: "Store not found" }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   const { data: products, error: fetchError } = await supabase
     .from("products")
