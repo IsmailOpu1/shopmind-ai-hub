@@ -33,6 +33,29 @@
     console.error("[ShopMind] Missing Supabase URL or anon key (build env not set)");
   }
 
+  // One chat session per browser tab and store; the server keeps the history.
+  function newSessionId() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+    return "s-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+  }
+  var sessionKey = "shopmind_session_" + businessId;
+  var sessionId = null;
+  try {
+    sessionId = window.sessionStorage.getItem(sessionKey);
+  } catch (e) {
+    /* storage blocked */
+  }
+  if (!sessionId) {
+    sessionId = newSessionId();
+    try {
+      window.sessionStorage.setItem(sessionKey, sessionId);
+    } catch (e) {
+      /* storage blocked */
+    }
+  }
+
   var base = String(SM_SUPABASE_URL).replace(/\/+$/, "");
   var chatUrl = base + "/functions/v1/chat";
 
@@ -350,13 +373,6 @@
     var text = (input.value || "").trim();
     if (!text || typing) return;
 
-    var history = messages
-      .filter(function (m) {
-        return !m.isError;
-      })
-      .map(function (m) {
-        return { role: m.role, content: m.content };
-      });
 
     messages.push({ id: ++msgId, role: "user", content: text });
     input.value = "";
@@ -385,7 +401,7 @@
         body: JSON.stringify({
           message: text,
           business_id: businessId,
-          conversation_history: history,
+          session_id: sessionId,
         }),
       });
 

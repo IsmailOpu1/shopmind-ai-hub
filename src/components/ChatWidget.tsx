@@ -112,13 +112,6 @@ const ChatWidget = () => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
     const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-    const previousMessages = messages
-      .filter((m) => !m.isError)
-      .map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
     const userMsg: Message = { id: ++idRef.current, role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
@@ -166,7 +159,6 @@ const ChatWidget = () => {
           message: text,
           business_id: businessId,
           session_id: sessionIdRef.current,
-          conversation_history: previousMessages,
         }),
       });
 

@@ -32,7 +32,17 @@ interface Product {
 
 const EXPECTED_COLS = ["name", "description", "price", "image_url", "category", "stock_status", "promo"];
 
-const getCategoryColor = (category: string | null) => {
+// The database only accepts "in_stock" / "out_of_stock"; spreadsheets use many spellings.
+const normalizeStockStatus = (value: unknown): "in_stock" | "out_of_stock" => {
+  if (value === null || value === undefined || String(value).trim() === "") return "in_stock";
+  const v = String(value).trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["out_of_stock", "out", "oos", "sold_out", "unavailable", "no", "false", "0"].includes(v)) {
+    return "out_of_stock";
+  }
+  return "in_stock";
+};
+
+const getCategoryColor =(category: string | null) => {
   if (!category) return "bg-gray-500/20 text-gray-400 border-gray-500/30";
   const lower = category.toLowerCase();
   if (lower.includes("footwear") || lower.includes("shoe") || lower.includes("boot") || lower.includes("sneaker")) {
@@ -150,7 +160,7 @@ const Products = () => {
       price: r.price ? Number(r.price) : null,
       image_url: r.image_url ? String(r.image_url) : null,
       category: r.category ? String(r.category) : null,
-      stock_status: r.stock_status ? String(r.stock_status) : "in_stock",
+      stock_status: normalizeStockStatus(r.stock_status),
       promo: r.promo ? String(r.promo) : null,
     }));
 
