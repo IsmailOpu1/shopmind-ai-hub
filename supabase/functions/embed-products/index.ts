@@ -1,4 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import {
+  buildProductText,
+  EMBEDDABLE_COLUMNS,
+  type EmbeddableProduct,
+  embedText,
+} from "../_shared/embedding.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -6,73 +12,6 @@ const corsHeaders: Record<string, string> = {
     "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
-
-const GEMINI_EMBED_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent";
-
-type ProductRow = {
-  id: string;
-  name: string;
-  description: string | null;
-  category: string | null;
-  price: number | null;
-  stock_status: string;
-  promo: string | null;
-};
-
-function field(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  return String(v);
-}
-
-function buildProductText(p: ProductRow): string {
-  return (
-    `Product: ${field(p.name)}. Category: ${field(p.category)}. ` +
-    `Price: ${field(p.price)}. Description: ${field(p.description)}. ` +
-    `Stock: ${field(p.stock_status)}. Promo: ${field(p.promo)}`
-  );
-}
-
-async function embedWithGemini(
-  apiKey: string,
-  productText: string,
-): Promise<number[]> {
-  const res = await fetch(GEMINI_EMBED_URL, {
-    method: "POST",
-    headers: {
-      "x-goog-api-key": apiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "models/gemini-embedding-001",
-      content: { parts: [{ text: productText }] },
-      taskType: "RETRIEVAL_DOCUMENT",
-      outputDimensionality: 3072,
-    }),
-  });
-
-  const raw = await res.text();
-  if (!res.ok) {
-    throw new Error(`Gemini embedContent failed (${res.status}): ${raw}`);
-  }
-
-  let data: { embedding?: { values?: number[] } };
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    throw new Error("Gemini embedContent returned non-JSON body");
-  }
-
-  const values = data.embedding?.values;
-  if (!values || values.length !== 3072) {
-    throw new Error(
-      `Gemini embedContent expected 3072 embedding values, got ${
-        values?.length ?? 0
-      }`,
-    );
-  }
-  return values;
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -161,9 +100,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: products, error: fetchError } = await supabase
     .from("products")
-    .select(
-      "id, name, description, category, price, stock_status, promo",
-    )
+    .select(EMBEDDABLE_COLUMNS)
     .eq("business_id", businessId)
     .is("embedding", null);
 
@@ -174,13 +111,16 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const rows = (products ?? []) as ProductRow[];
+  const rows = (products ?? []) as EmbeddableProduct[];
   let embeddedCount = 0;
 
   try {
     for (const product of rows) {
-      const text = buildProductText(product);
-      const vector = await embedWithGemini(geminiKey, text);
+      const result = await embedText(geminiKey, buildProductText(product), "RETRIEVAL_DOCUMENT");
+      if (!result.ok) {
+        throw new Error(`Gemini embedContent failed (${result.status}): ${result.body.slice(0, 300)}`);
+      }
+      const vector = result.values;
 
       const { error: updateError } = await supabase
         .from("products")

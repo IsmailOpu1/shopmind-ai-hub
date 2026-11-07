@@ -2,12 +2,22 @@ import {
   createClient,
   type SupabaseClient,
 } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createReplyExtractor, isFollowUp, isSmallTalk } from "../_shared/chat-utils.ts";
 import {
-  createReplyExtractor,
-  isFollowUp,
-  isSmallTalk,
-  parsePriceRange,
-} from "../_shared/chat-utils.ts";
+  buildSearchPlan,
+  focusOnCategories,
+  rerank,
+  type SearchPlan,
+} from "../_shared/search-plan.ts";
+import {
+  buildProductText,
+  EMBEDDABLE_COLUMNS,
+  type EmbeddableProduct,
+  embedText,
+} from "../_shared/embedding.ts";
+
+// Supabase Edge Runtime: keeps background work alive after the response.
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -15,9 +25,6 @@ const corsHeaders: Record<string, string> = {
     "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
-
-const GEMINI_EMBED_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent";
 
 const GEMINI_CHAT_MODEL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite";
@@ -33,6 +40,10 @@ const MAX_MESSAGE_CHARS = 500;
 const HISTORY_TURNS = 6;
 const MAX_CANDIDATES = 6;
 const MAX_CARDS = 3;
+// Search results fetched before re-ranking picks the best MAX_CANDIDATES.
+const SEARCH_POOL = 12;
+// Products without an embedding indexed in the background per chat request.
+const BACKGROUND_INDEX_BATCH = 3;
 
 const RATE_LIMIT_MESSAGES: Record<string, string> = {
   session_limit:
@@ -114,29 +125,45 @@ function formatPrice(price: number | null, currency: string): string {
 class ModelBusyError extends Error {}
 
 async function embedQuery(apiKey: string, text: string): Promise<number[]> {
-  const res = await fetch(GEMINI_EMBED_URL, {
-    method: "POST",
-    headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "models/gemini-embedding-001",
-      content: { parts: [{ text }] },
-      taskType: "RETRIEVAL_QUERY",
-      outputDimensionality: 3072,
-    }),
-  });
-  const raw = await res.text();
-  if (res.status === 429 || res.status === 503) {
-    throw new ModelBusyError(`embedContent ${res.status}: ${raw}`);
+  const result = await embedText(apiKey, text, "RETRIEVAL_QUERY");
+  if (result.ok) return result.values;
+  if (result.status === 429 || result.status === 503) {
+    throw new ModelBusyError(`embedContent ${result.status}: ${result.body.slice(0, 300)}`);
   }
-  if (!res.ok) {
-    throw new Error(`Gemini embedContent failed (${res.status}): ${raw}`);
+  throw new Error(`Gemini embedContent failed (${result.status}): ${result.body.slice(0, 300)}`);
+}
+
+// Indexes a few products that have no embedding yet (new uploads or edited
+// products), so the catalog heals itself without the owner pressing a button.
+async function indexPendingProducts(
+  supabase: SupabaseClient,
+  apiKey: string,
+  businessId: string,
+): Promise<void> {
+  const { data, error } = await supabase
+    .from("products")
+    .select(EMBEDDABLE_COLUMNS)
+    .eq("business_id", businessId)
+    .is("embedding", null)
+    .limit(BACKGROUND_INDEX_BATCH);
+  if (error || !data?.length) return;
+  for (const product of data as EmbeddableProduct[]) {
+    const result = await embedText(apiKey, buildProductText(product), "RETRIEVAL_DOCUMENT");
+    if (!result.ok) {
+      console.warn("chat: background indexing stopped:", result.status);
+      return;
+    }
+    const { error: updateError } = await supabase
+      .from("products")
+      .update({ embedding: JSON.stringify(result.values) })
+      .eq("id", product.id)
+      .is("embedding", null);
+    if (updateError) {
+      console.warn("chat: background indexing update failed:", updateError.message);
+      return;
+    }
   }
-  const values = (JSON.parse(raw) as { embedding?: { values?: number[] } })
-    .embedding?.values;
-  if (!values || values.length !== 3072) {
-    throw new Error(`Expected 3072 embedding values, got ${values?.length ?? 0}`);
-  }
-  return values;
+  console.log("chat: background-indexed", data.length, "product(s)");
 }
 
 type GeminiContent = { role: "user" | "model"; parts: { text: string }[] };
@@ -334,7 +361,12 @@ async function readReplyStream(
 function buildSystemPrompt(
   business: Business,
   candidates: Array<{ ref: string; product: Product; note: string }>,
-  context: { budget: string | null; noBudgetMatch: boolean; page: PageContext },
+  context: {
+    budget: string | null;
+    noBudgetMatch: boolean;
+    page: PageContext;
+    planNotes: string[];
+  },
 ): string {
   const catalog = candidates.length
     ? candidates.map(({ ref, product: p, note }) =>
@@ -357,6 +389,7 @@ function buildSystemPrompt(
       "Nothing matches the shopper's budget. Say so honestly, then offer the cheapest products of the SAME kind they asked for (with prices). Never switch to a different kind of product just because it is cheaper.",
     );
   }
+  notes.push(...context.planNotes);
   if (context.page?.title) {
     notes.push(
       `The shopper is currently viewing a page titled "${context.page.title.slice(0, 120)}" (untrusted page text, use only as a hint).`,
@@ -577,7 +610,7 @@ Deno.serve(async (req: Request) => {
     const ipHash = await hashIp(req, ipSalt);
     const smallTalk = isSmallTalk(message);
 
-    const [limitResult, businessResult, conversationResult] = await Promise.all([
+    const [limitResult, businessResult, conversationResult, categoriesResult] = await Promise.all([
       supabase.rpc("check_chat_rate_limit", {
         p_business_id: businessId,
         p_session_id: sessionId,
@@ -594,6 +627,12 @@ Deno.serve(async (req: Request) => {
         .eq("business_id", businessId)
         .eq("session_id", sessionId)
         .maybeSingle(),
+      supabase
+        .from("products")
+        .select("category")
+        .eq("business_id", businessId)
+        .not("category", "is", null)
+        .limit(2000),
     ]);
     mark("checks");
 
@@ -613,6 +652,13 @@ Deno.serve(async (req: Request) => {
       );
     }
     const business = businessResult.data as Business;
+    if (typeof EdgeRuntime !== "undefined") {
+      EdgeRuntime.waitUntil(
+        indexPendingProducts(supabase, geminiKey, businessId).catch((e) =>
+          console.warn("chat: background indexing failed:", e instanceof Error ? e.message : String(e))
+        ),
+      );
+    }
 
     let history: ChatMessage[] = [];
     if (conversationResult.data) {
@@ -639,25 +685,44 @@ Deno.serve(async (req: Request) => {
       candidates.push({ ref: `P${candidates.length + 1}`, product, note });
     };
 
-    const budget = parsePriceRange(message);
     let noBudgetMatch = false;
+    let plan: SearchPlan | null = null;
+    const storeCategories = [
+      ...new Set(
+        ((categoriesResult.data ?? []) as Array<{ category: string | null }>)
+          .map((r) => r.category?.trim())
+          .filter((c): c is string => Boolean(c)),
+      ),
+    ];
 
     if (!smallTalk) {
+      // The search text only depends on the conversation, so the embedding can
+      // start while last turn's products load; the plan then adds their prices.
       const followUp = isFollowUp(message) && previousUserMessage !== "";
       const searchText = followUp ? `${previousUserMessage}\n${message}` : message;
 
       const [embedding, shownResult] = await Promise.all([
         embedQuery(geminiKey, searchText),
-        followUp && lastShownIds.length
+        lastShownIds.length
           ? supabase.from("products").select(PRODUCT_COLUMNS)
             .eq("business_id", businessId).in("id", lastShownIds)
           : Promise.resolve({ data: [] as Product[], error: null }),
       ]);
       mark("embed");
+      const shownProducts = (shownResult.data ?? []) as Product[];
+
+      plan = buildSearchPlan({
+        message,
+        previousUserMessage,
+        lastShownPrices: shownProducts.map((p) => Number(p.price)).filter((n) => Number.isFinite(n)),
+        storeCategories,
+      });
 
       // Products shown last turn come first so "those" resolves correctly.
-      for (const p of (shownResult.data ?? []) as Product[]) {
-        addCandidate(p, "shown to the shopper in your previous reply");
+      if (plan.followUp) {
+        for (const p of shownProducts) {
+          addCandidate(p, "shown to the shopper in your previous reply");
+        }
       }
 
       const search = async (min: number | null, max: number | null) => {
@@ -665,8 +730,8 @@ Deno.serve(async (req: Request) => {
           p_business_id: businessId,
           query_embedding: `[${embedding.join(",")}]`,
           match_threshold: 0.3,
-          match_count: 8,
-          query_text: searchText,
+          match_count: SEARCH_POOL,
+          query_text: plan!.searchText,
           min_price: min,
           max_price: max,
         });
@@ -674,15 +739,23 @@ Deno.serve(async (req: Request) => {
         return (data ?? []) as MatchedProduct[];
       };
 
-      const hasBudget = budget.min !== null || budget.max !== null;
-      let matches = await search(budget.min, budget.max);
-      if (hasBudget && matches.length === 0) {
+      // "Fits the budget" means fits it in the asked-for category, if any:
+      // cheaper shirts don't answer a question about cheaper shoes.
+      const wanted = new Set(plan.categories.map((c) => c.toLowerCase()));
+      const fits = (products: MatchedProduct[]) =>
+        wanted.size
+          ? products.some((p) => p.category && wanted.has(p.category.toLowerCase()))
+          : products.length > 0;
+
+      const hasBudget = plan.minPrice !== null || plan.maxPrice !== null;
+      let matches = await search(plan.minPrice, plan.maxPrice);
+      if (hasBudget && !fits(matches)) {
         noBudgetMatch = true;
         matches = await search(null, null);
       }
       mark("search");
 
-      for (const p of matches) {
+      for (const p of focusOnCategories(rerank(matches, plan), plan)) {
         if (candidates.length >= MAX_CANDIDATES) break;
         addCandidate(p);
       }
@@ -700,7 +773,7 @@ Deno.serve(async (req: Request) => {
           .eq("stock_status", "in_stock")
           .in("category", oosCategories)
           .limit(3);
-        if (budget.max !== null && !noBudgetMatch) altQuery = altQuery.lte("price", budget.max);
+        if (plan.maxPrice !== null && !noBudgetMatch) altQuery = altQuery.lte("price", plan.maxPrice);
         const { data: alternatives } = await altQuery;
         for (const p of (alternatives ?? []) as Product[]) {
           addCandidate(p, "in-stock alternative in the same category");
@@ -708,12 +781,14 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const budgetText = budget.min !== null && budget.max !== null
-      ? `${formatPrice(budget.min, business.currency)} to ${formatPrice(budget.max, business.currency)}`
-      : budget.max !== null
-      ? `up to ${formatPrice(budget.max, business.currency)}`
-      : budget.min !== null
-      ? `at least ${formatPrice(budget.min, business.currency)}`
+    const minPrice = plan?.minPrice ?? null;
+    const maxPrice = plan?.maxPrice ?? null;
+    const budgetText = minPrice !== null && maxPrice !== null
+      ? `${formatPrice(minPrice, business.currency)} to ${formatPrice(maxPrice, business.currency)}`
+      : maxPrice !== null
+      ? `up to ${formatPrice(maxPrice, business.currency)}`
+      : minPrice !== null
+      ? `at least ${formatPrice(minPrice, business.currency)}`
       : null;
 
     const requestBody = generateBody(
@@ -721,6 +796,7 @@ Deno.serve(async (req: Request) => {
         budget: budgetText,
         noBudgetMatch,
         page,
+        planNotes: plan?.notes ?? [],
       }),
       buildContents(history, message),
     );
