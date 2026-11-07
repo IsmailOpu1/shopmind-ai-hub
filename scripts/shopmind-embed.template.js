@@ -242,8 +242,8 @@
     "#" +
     NS +
     " .sm-card-variants{font-size:12px;color:#374151;margin:0 0 4px;}" +
-    " .sm-card-variants s{color:#9ca3af;}" +
-    " .sm-card-desc{font-size:12px;color:#6b7280;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}" +
+    "#" + NS + " .sm-card-variants s{color:#9ca3af;}" +
+    "#" + NS + " .sm-card-desc{font-size:12px;color:#6b7280;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}" +
     "@media (max-width:768px){" +
     "#" +
     NS +
