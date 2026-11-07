@@ -30,8 +30,13 @@ const GEMINI_CHAT_MODEL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-// Free tier model by default; override with the OPENROUTER_MODEL secret.
-const DEFAULT_OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
+// Free models, tried in order by OpenRouter. Free models get retired without
+// notice, so keep several; override with OPENROUTER_MODEL (comma-separated).
+const DEFAULT_OPENROUTER_MODELS = [
+  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3.5-super-vl:free",
+  "google/gemma-4-26b-a4b-it:free",
+];
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -205,7 +210,7 @@ type Provider = "gemini" | "openrouter";
 type LlmKeys = {
   gemini: string;
   openrouter: string | null;
-  openrouterModel: string;
+  openrouterModels: string[];
 };
 
 // POSTs with brief retries while the model is overloaded. Returns an OK
@@ -255,15 +260,20 @@ function callOpenRouter(keys: LlmKeys, stream: boolean, body: GenerateBody): Pro
       content: c.parts.map((p) => p.text).join("\n"),
     })),
   ];
+  const [model, ...fallbacks] = keys.openrouterModels;
   return postWithRetry(
     "openrouter",
     OPENROUTER_URL,
     { Authorization: `Bearer ${keys.openrouter}`, "X-Title": "ShopMind AI" },
     {
-      model: keys.openrouterModel,
+      model,
+      ...(fallbacks.length ? { models: keys.openrouterModels } : {}),
       messages,
       temperature: 0.6,
-      max_tokens: 400,
+      // Some fallback models "think" first; without this they can spend the
+      // whole token budget reasoning and return an empty reply.
+      reasoning: { enabled: false },
+      max_tokens: 1000,
       response_format: { type: "json_object" },
       stream,
     },
@@ -282,7 +292,13 @@ async function startReply(
   } catch (e) {
     if (!(e instanceof ModelBusyError) || !keys.openrouter) throw e;
     console.warn("chat: Gemini busy, using OpenRouter fallback:", e.message);
-    return { provider: "openrouter", res: await callOpenRouter(keys, stream, body) };
+    try {
+      return { provider: "openrouter", res: await callOpenRouter(keys, stream, body) };
+    } catch (fallbackError) {
+      // Both providers failed: the shopper gets the "busy, try again" reply.
+      console.error("chat: OpenRouter fallback failed:", (fallbackError as Error).message);
+      throw new ModelBusyError(`both providers failed: ${(fallbackError as Error).message}`);
+    }
   }
 }
 
@@ -302,7 +318,9 @@ function chunkText(provider: Provider, data: ModelChunk): string {
 function parseTurn(rawText: string): AssistantTurn {
   // Some models wrap JSON in a code fence.
   const text = rawText.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  if (!text) throw new Error("model returned no text");
+  // Free models occasionally return nothing; treat it like a busy model so
+  // the shopper is asked to try again rather than shown an error.
+  if (!text) throw new ModelBusyError("model returned no text");
   try {
     const parsed = JSON.parse(text) as Partial<AssistantTurn>;
     const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
@@ -320,7 +338,18 @@ function parseTurn(rawText: string): AssistantTurn {
 }
 
 async function readReply(provider: Provider, res: Response): Promise<AssistantTurn> {
-  return parseTurn(chunkText(provider, await res.json() as ModelChunk));
+  const data = await res.json() as ModelChunk & Record<string, unknown>;
+  const text = chunkText(provider, data);
+  if (!text.trim() && provider === "openrouter") {
+    const choice = (data.choices?.[0] ?? {}) as Record<string, unknown>;
+    console.warn("chat: openrouter empty reply", JSON.stringify({
+      model: data.model,
+      finish_reason: choice.finish_reason,
+      error: data.error,
+      usage: data.usage,
+    }).slice(0, 500));
+  }
+  return parseTurn(text);
 }
 
 // Reads the model's SSE stream, calling onDelta with reply text as it arrives.
@@ -524,10 +553,12 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Assistant is not configured" }, 500);
   }
   const supabase = createClient(supabaseUrl, serviceKey);
+  const configuredModels = (Deno.env.get("OPENROUTER_MODEL") ?? "")
+    .split(",").map((m) => m.trim()).filter(Boolean);
   const llmKeys: LlmKeys = {
     gemini: geminiKey,
     openrouter: Deno.env.get("OPENROUTER_API_KEY") || null,
-    openrouterModel: Deno.env.get("OPENROUTER_MODEL") || DEFAULT_OPENROUTER_MODEL,
+    openrouterModels: configuredModels.length ? configuredModels : DEFAULT_OPENROUTER_MODELS,
   };
 
   if (req.method === "GET") {
