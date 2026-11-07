@@ -1,4 +1,4 @@
-import { Home, LayoutGrid, Settings, LogOut, Brain, User, BarChart3 } from "lucide-react";
+import { Home, LayoutGrid, Settings, LogOut, Brain, User, BarChart3, BookOpen } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: Home },
   { title: "Products", url: "/dashboard/products", icon: LayoutGrid },
+  { title: "Store knowledge", url: "/dashboard/knowledge", icon: BookOpen },
   { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3 },
   { title: "Chatbot Settings", url: "/dashboard/chatbot", icon: Settings },
 ];

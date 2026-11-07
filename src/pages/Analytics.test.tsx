@@ -55,7 +55,7 @@ describe("Analytics page", () => {
 
     expect(screen.getByText("57%")).toBeInTheDocument(); // 4 of 7 replies from the backup model
     expect(screen.getByText("do you sell laptops")).toBeInTheDocument();
-    expect(screen.getByText("No matching product")).toBeInTheDocument();
+    expect(screen.getByText("No product or store info found")).toBeInTheDocument();
     expect(screen.getByText("Nothing in budget")).toBeInTheDocument();
     expect(screen.getByText("any discounts on sunglasses")).toBeInTheDocument();
     expect(screen.getByText("40% of cards")).toBeInTheDocument(); // 2 add-to-cart clicks of 5 cards shown

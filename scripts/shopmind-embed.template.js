@@ -241,6 +241,8 @@
     " .sm-card-price{font-size:18px;font-weight:700;color:var(--sm-primary);margin:0 0 6px;}" +
     "#" +
     NS +
+    " .sm-card-variants{font-size:12px;color:#374151;margin:0 0 4px;}" +
+    " .sm-card-variants s{color:#9ca3af;}" +
     " .sm-card-desc{font-size:12px;color:#6b7280;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}" +
     "@media (max-width:768px){" +
     "#" +
@@ -305,6 +307,18 @@
     thread.scrollTop = thread.scrollHeight;
   }
 
+  // "Sizes: S, M, L(struck)" from the product's variants; sold-out ones struck through.
+  function renderVariants(p) {
+    var list = Array.isArray(p.variants) ? p.variants.slice(0, 12) : [];
+    if (!list.length) return "";
+    var hasSize = list.some(function (v) { return v && v.size; });
+    var labels = list.map(function (v) {
+      var label = esc([v && v.colour, v && v.size].filter(Boolean).join("/"));
+      return v && v.stock_status === "out_of_stock" ? "<s>" + label + "</s>" : label;
+    });
+    return '<p class="sm-card-variants">' + (hasSize ? "Sizes: " : "Colours: ") + labels.join(", ") + "</p>";
+  }
+
   function renderProductCard(p) {
     var imgHtml = p.image_url
       ? '<div class="sm-card-img"><img src="' +
@@ -339,6 +353,7 @@
       badges +
       "</div>" +
       priceHtml +
+      renderVariants(p) +
       (p.description
         ? '<p class="sm-card-desc">' + esc(p.description) + "</p>"
         : "") +

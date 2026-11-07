@@ -118,6 +118,29 @@ describe("rerank", () => {
     expect(ranked.map((r) => r.name)).toEqual(["Forest Green Chinos", "White Linen Trousers", "Green Shirt"]);
   });
 
+  it("prefers products with the asked size in stock, and colours from variants", () => {
+    const plan = buildSearchPlan({
+      message: "black shirt in size M",
+      previousUserMessage: "",
+      lastShownPrices: [],
+      storeCategories: categories,
+    });
+    expect(plan.size).toBe("M");
+    const withVariants = (name: string, similarity: number, variants: unknown) => ({
+      ...p(name, "Shirts", similarity),
+      variants,
+    });
+    const ranked = rerank(
+      [
+        withVariants("Polo", 0.7, [{ colour: "White", size: "M", stock_status: "in_stock" }]),
+        withVariants("Oxford", 0.6, [{ colour: "Black", size: "M", stock_status: "in_stock" }]),
+        withVariants("Linen", 0.65, [{ colour: "Black", size: "M", stock_status: "out_of_stock" }]),
+      ],
+      plan,
+    );
+    expect(ranked.map((r) => r.name)).toEqual(["Oxford", "Linen", "Polo"]);
+  });
+
   it("pushes out-of-stock items down when the shopper wants stock", () => {
     const plan = buildSearchPlan({
       message: "trousers in stock",

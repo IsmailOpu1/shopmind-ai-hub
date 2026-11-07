@@ -42,6 +42,12 @@ const scenarios = [
   { name: "rag cheaper follow-up", turns: ["do you have loafers?", "anything cheaper?"] },
   { name: "rag category + stock", turns: ["show me shoes that are in stock"] },
   { name: "rag new topic", turns: ["shoes under 500 taka", "any sunglasses?"] },
+  // RAG Level 2: store documents and variants (needs the demo shipping doc and shirt variants).
+  { name: "store delivery", turns: ["Do you deliver outside Dhaka?"] },
+  { name: "store unknown policy", turns: ["do you have a physical shop I can visit?"] },
+  { name: "store size", turns: ["show me the oxford shirt", "Is size M in stock?"] },
+  { name: "store city delivery", turns: ["How long does delivery to Chittagong take?"] },
+  { name: "store size sold out", turns: ["do you have the cream linen shirt in size M?"] },
 ];
 
 const runId = Date.now().toString(36);

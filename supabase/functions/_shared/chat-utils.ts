@@ -16,7 +16,7 @@ export function isSmallTalk(message: string): boolean {
 // Short replies or ones pointing back ("those", "the cheaper one") refine the
 // previous request, so search with the previous shopper message as well.
 const FOLLOW_UP_RE =
-  /\b(it|its|that|those|these|them|this one|that one|one|ones|cheaper|cheapest|more expensive|bigger|smaller|another|other|else|similar|instead|compare|which|better)\b/i;
+  /\b(it|its|that|those|these|them|this one|that one|one|ones|cheaper|cheapest|more expensive|bigger|smaller|another|other|else|similar|instead|compare|which|better|size|sizes)\b/i;
 
 export function isFollowUp(message: string): boolean {
   return message.split(/\s+/).length <= 4 || FOLLOW_UP_RE.test(message);

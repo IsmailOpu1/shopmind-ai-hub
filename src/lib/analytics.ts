@@ -127,6 +127,6 @@ export function browserTimeZone(): string {
 }
 
 export const GAP_REASON_LABEL: Record<CatalogGap["reason"], string> = {
-  no_match: "No matching product",
+  no_match: "No product or store info found",
   no_budget_match: "Nothing in budget",
 };
