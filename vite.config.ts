@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type ResolvedConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import { componentTagger } from "lovable-tagger";
 
@@ -8,8 +8,13 @@ import { componentTagger } from "lovable-tagger";
 function shopmindEmbedPlugin() {
   return {
     name: "shopmind-embed",
-    configResolved(config) {
+    configResolved(config: ResolvedConfig) {
       const env = loadEnv(config.mode, process.cwd(), "");
+      // A production build without these ships a dashboard and widget that can't reach the backend.
+      if (config.command === "build" && config.mode === "production") {
+        const missing = ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"].filter((k) => !env[k]);
+        if (missing.length) throw new Error(`Missing ${missing.join(", ")}: set them in the hosting provider's environment variables.`);
+      }
       const templatePath = path.resolve(__dirname, "scripts/shopmind-embed.template.js");
       let code = fs.readFileSync(templatePath, "utf8");
       const urlLit = JSON.stringify(env.VITE_SUPABASE_URL ?? "");
@@ -19,6 +24,24 @@ function shopmindEmbedPlugin() {
       const outPath = path.resolve(__dirname, "public/embed.js");
       fs.mkdirSync(path.dirname(outPath), { recursive: true });
       fs.writeFileSync(outPath, code, "utf8");
+    },
+  };
+}
+
+/**
+ * The widget demo page chats with the demo store; it is for local testing
+ * only, so production builds leave it out.
+ */
+function dropDevOnlyPages() {
+  let outDir = "dist";
+  return {
+    name: "shopmind-drop-dev-pages",
+    apply: "build" as const,
+    configResolved(config: { build: { outDir: string }; root: string }) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
+    closeBundle() {
+      fs.rmSync(path.join(outDir, "embed-demo.html"), { force: true });
     },
   };
 }
@@ -34,6 +57,7 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     shopmindEmbedPlugin(),
+    mode === "production" && dropDevOnlyPages(),
     react(),
     mode === "development" && componentTagger(),
   ].filter(Boolean),
