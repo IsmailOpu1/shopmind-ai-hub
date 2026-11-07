@@ -1,81 +1,67 @@
 # ShopMind AI
 
-An AI-powered shopping assistant dashboard for e-commerce businesses. Upload your product catalog, customize your chatbot, and embed an AI shopping assistant on your store.
+An AI shopping assistant that online stores add to their site with one script tag. Store owners upload their catalog and set up the bot in a dashboard; shoppers chat with it like a shopkeeper who knows every product, price, promo and stock level.
 
-## Tech Stack
+## How it works
 
-- **Frontend:** React 18, TypeScript, Vite 5
-- **Styling:** Tailwind CSS v3, shadcn/ui
-- **Backend:** Supabase (Auth, PostgreSQL, Row Level Security)
-- **State:** TanStack React Query
-- **File Parsing:** PapaParse (CSV), SheetJS (XLSX)
+- **Dashboard** (React app in `src/`): sign up, upload products (CSV/XLSX), set bot name, greeting, colour, button position and currency, and copy the embed snippet.
+- **Embed widget** (`public/embed.js`, built from `scripts/shopmind-embed.template.js`): a dependency-free chat bubble that loads the store's settings and streams replies.
+- **Chat function** (`supabase/functions/chat`): rate-limits the visitor, searches the store's catalog (70% vector similarity + 30% keyword, budget-aware), asks Gemini for a grounded reply, and streams it back with product cards.
+- **Embedding function** (`supabase/functions/embed-products`): owner-only; creates product embeddings after upload.
 
-## Features
+Each store's data is isolated: product search runs only on the server with a required store ID, the public key cannot read any table, and owners can only see their own store through row-level security.
 
-- 🔐 Email/password authentication with Supabase Auth
-- 📦 Bulk product upload via CSV/XLSX drag-and-drop
-- 🤖 Customizable AI chatbot widget (name, greeting, color, position)
-- 📊 Dashboard with stats overview
-- 🌙 Dark theme UI
-- 📱 Fully responsive (mobile, tablet, desktop)
+## Tech stack
 
-## Local Setup
+React 18, TypeScript, Vite 5, Tailwind + shadcn/ui, TanStack Query · Supabase (Auth, Postgres + pgvector, Edge Functions) · Gemini (`gemini-2.5-flash-lite` for replies, `gemini-embedding-001` for search).
 
-### Prerequisites
-
-- Node.js 18+ or Bun
-- A Supabase project
-
-### Installation
+## Local setup
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
-cd <project-directory>
-
-# Install dependencies
 npm install
-
-# Copy environment variables
-cp .env.example .env
-# Edit .env with your Supabase project credentials
-
-# Start development server
-npm run dev
+cp .env.example .env   # fill in your Supabase URL, anon key and project ID
+npm run dev            # http://localhost:8080
 ```
 
-### Supabase Setup
+`public/embed-demo.html` is a demo storefront for the widget (`/embed-demo.html`, add `?nudge=fast` to see the proactive prompt after 3 seconds).
 
-1. Create a new project at [supabase.com](https://supabase.com)
-2. Copy your project URL and anon key into `.env`
-3. Run the migrations in `supabase/migrations/` against your database
-4. Enable email auth in Supabase Authentication settings
+### Supabase
 
-### Available Scripts
+1. Apply the migrations in `supabase/migrations/` (in order).
+2. Set the edge function secrets: `GEMINI_API_KEY` (required), `IP_HASH_SALT` (recommended), and optionally `OPENROUTER_API_KEY` + `OPENROUTER_MODEL` — used automatically when Gemini is busy or out of quota.
+3. Deploy the functions:
+   ```bash
+   supabase functions deploy chat --project-ref <ref> --use-api
+   supabase functions deploy embed-products --project-ref <ref> --use-api
+   ```
+4. In Auth settings, enable email sign-in and leaked-password protection.
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start development server |
-| `npm run build` | Build for production |
-| `npm run preview` | Preview production build |
-| `npm run lint` | Run ESLint |
+## Embedding on a store
 
-## Project Structure
-
-```
-src/
-├── components/       # Reusable UI components
-│   ├── ui/           # shadcn/ui primitives
-│   ├── AppSidebar    # Navigation sidebar
-│   ├── ChatWidget    # AI chat overlay
-│   ├── ErrorBoundary # Crash recovery
-│   └── ...
-├── hooks/            # Custom React hooks (useAuth, etc.)
-├── integrations/     # Supabase client & types
-├── pages/            # Route pages
-└── lib/              # Utilities
+```html
+<script src="https://<your-dashboard-domain>/embed.js" data-business-id="<store id>" defer></script>
 ```
 
-## License
+Optional attributes override the dashboard settings: `data-bot-name`, `data-greeting`, `data-primary-color`, `data-position` (`bottom-right` / `bottom-left`), `data-currency`, `data-proactive-delay` (seconds, or `off`), and `data-enable-cart="true"`, which shows "Add to cart" on in-stock cards and fires a `shopmind:add-to-cart` event on `window` with `{ id, sku, name, price, product_url }`.
 
-Private — all rights reserved.
+## Chat API
+
+`POST /functions/v1/chat` with `{ message, business_id, session_id, stream?, page? }`.
+
+- Without `stream`, it returns `{ reply, products, currency }`.
+- With `stream: true`, it returns server-sent events: `{"type":"delta","text":...}` while the reply is written, then `{"type":"done","reply","products","currency"}` (or `{"type":"error","error"}`).
+- Errors before the reply starts (validation, rate limits, AI busy) are normal JSON errors with status 400/404/429/503.
+
+`GET /functions/v1/chat?business_id=...` returns the store's public widget settings.
+
+Limits: 500 characters per message, 30 messages per chat, 60 per visitor per hour, and the store's daily limit (default 500).
+
+## Scripts
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start the dashboard dev server |
+| `npm run build` | Production build (also regenerates `public/embed.js`) |
+| `npm run lint` | ESLint |
+| `npm test` | Unit tests (Vitest) |
+| `node scripts/test-chat.js <business_id>` | End-to-end chat scenarios against the deployed function (uses ~10 Gemini calls) |

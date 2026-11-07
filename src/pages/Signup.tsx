@@ -29,8 +29,8 @@ const Signup = () => {
       await signUp(email, password, businessName);
       toast({ title: "Account created!", description: "Please check your email to verify your account." });
       navigate("/login");
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Something went wrong", variant: "destructive" });
     } finally {
       setLoading(false);
     }

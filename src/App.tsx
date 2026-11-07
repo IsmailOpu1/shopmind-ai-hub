@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/toaster";
@@ -6,13 +7,21 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import DashboardLayout from "@/components/DashboardLayout";
-import DashboardHome from "@/pages/DashboardHome";
-import ChatbotSettings from "@/pages/ChatbotSettings";
-import Products from "@/pages/Products";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import NotFound from "./pages/NotFound";
+
+// Dashboard pages load on demand, so the login page stays small.
+const DashboardLayout = lazy(() => import("@/components/DashboardLayout"));
+const DashboardHome = lazy(() => import("@/pages/DashboardHome"));
+const ChatbotSettings = lazy(() => import("@/pages/ChatbotSettings"));
+const Products = lazy(() => import("@/pages/Products"));
+
+const PageFallback = () => (
+  <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+    Loading...
+  </div>
+);
 
 const queryClient = new QueryClient();
 
@@ -24,24 +33,26 @@ const App = () => (
       <ErrorBoundary>
         <BrowserRouter>
           <AuthProvider>
-            <Routes>
-              <Route path="/" element={<Navigate to="/login" replace />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <DashboardLayout />
-                  </ProtectedRoute>
-                }
-              >
-                <Route index element={<DashboardHome />} />
-                <Route path="products" element={<Products />} />
-                <Route path="chatbot" element={<ChatbotSettings />} />
-              </Route>
-              <Route path="*" element={<NotFound />} />
-            </Routes>
+            <Suspense fallback={<PageFallback />}>
+              <Routes>
+                <Route path="/" element={<Navigate to="/login" replace />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/signup" element={<Signup />} />
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <DashboardLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<DashboardHome />} />
+                  <Route path="products" element={<Products />} />
+                  <Route path="chatbot" element={<ChatbotSettings />} />
+                </Route>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
           </AuthProvider>
         </BrowserRouter>
       </ErrorBoundary>

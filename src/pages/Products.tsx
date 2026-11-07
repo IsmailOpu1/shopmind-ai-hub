@@ -18,7 +18,6 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import EmptyState from "@/components/EmptyState";
 import Papa from "papaparse";
 import { formatPrice } from "@/lib/utils";
-import * as XLSX from "xlsx";
 
 interface Product {
   id: string;
@@ -31,7 +30,7 @@ interface Product {
   promo: string | null;
 }
 
-const EXPECTED_COLS = ["name", "description", "price", "image_url", "category", "stock_status", "promo", "product_url"];
+const EXPECTED_COLS = ["name", "description", "price", "image_url", "category", "stock_status", "promo", "product_url", "sku"];
 
 // "৳1,299", "Tk 1299.50" or 1299 -> 1299; anything unparseable -> null.
 const parsePrice = (value: unknown): number | null => {
@@ -178,6 +177,7 @@ const Products = () => {
       stock_status: normalizeStockStatus(r.stock_status),
       promo: r.promo ? String(r.promo) : null,
       product_url: parseUrl(r.product_url),
+      sku: r.sku != null && String(r.sku).trim() ? String(r.sku).trim().slice(0, 100) : null,
     }));
 
     const { error } = await supabase.from("products").insert(toInsert);
@@ -223,8 +223,10 @@ const Products = () => {
       });
     } else if (ext === "xlsx" || ext === "xls") {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        // The spreadsheet parser is large; load it only when it's needed.
+        const XLSX = await import("xlsx");
         const wb = XLSX.read(data, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(sheet) as Record<string, unknown>[];
@@ -338,7 +340,7 @@ const Products = () => {
       {!selectedFile && (
         <p className="text-xs text-muted-foreground -mt-2">
           Columns: <code>name</code> (required), <code>description</code>, <code>price</code>, <code>category</code>,{" "}
-          <code>stock_status</code>, <code>promo</code>, <code>image_url</code>, <code>product_url</code>
+          <code>stock_status</code>, <code>promo</code>, <code>image_url</code>, <code>product_url</code>, <code>sku</code>
         </p>
       )}
       {!selectedFile ? null : (

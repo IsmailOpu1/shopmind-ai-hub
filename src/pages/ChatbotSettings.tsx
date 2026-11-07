@@ -14,8 +14,9 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Save, Bot, MessageCircle, Palette, Copy, CheckCircle2, Loader2, Code, Coins, PanelRight } from "lucide-react";
+import { Save, Bot, MessageCircle, Palette, Copy, CheckCircle2, Loader2, Code, Coins, PanelRight, ShoppingCart } from "lucide-react";
 import { CURRENCIES } from "@/lib/utils";
+import { type CartMode, validateCartTemplate } from "@/lib/cart";
 import LoadingSpinner from "@/components/LoadingSpinner";
 
 const ChatbotSettings = () => {
@@ -28,6 +29,8 @@ const ChatbotSettings = () => {
   const [primaryColor, setPrimaryColor] = useState("#1E40AF");
   const [fabPosition, setFabPosition] = useState("bottom-right");
   const [currency, setCurrency] = useState("BDT");
+  const [cartMode, setCartMode] = useState<CartMode>("off");
+  const [cartUrlTemplate, setCartUrlTemplate] = useState("");
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -40,7 +43,7 @@ const ChatbotSettings = () => {
     const fetchSettings = async () => {
       const { data, error } = await supabase
         .from("businesses")
-        .select("id, bot_name, greeting, primary_color, fab_position, currency")
+        .select("id, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template")
         .eq("owner_id", user.id)
         .maybeSingle();
 
@@ -50,6 +53,8 @@ const ChatbotSettings = () => {
         setPrimaryColor(data.primary_color && data.primary_color.trim() !== "" ? data.primary_color : "#1E40AF");
         setFabPosition(data.fab_position ?? "bottom-right");
         setCurrency(data.currency ?? "BDT");
+        setCartMode((data.cart_mode as CartMode) ?? "off");
+        setCartUrlTemplate(data.cart_url_template ?? "");
         setBusinessId(data.id);
       }
       setLoading(false);
@@ -74,6 +79,13 @@ const ChatbotSettings = () => {
       toast.error("Primary color must be a hex value like #1E40AF.");
       return;
     }
+    if (cartMode === "url") {
+      const cartError = validateCartTemplate(cartUrlTemplate);
+      if (cartError) {
+        toast.error(cartError);
+        return;
+      }
+    }
     setSaving(true);
     const { error } = await supabase
       .from("businesses")
@@ -83,6 +95,8 @@ const ChatbotSettings = () => {
         primary_color: primaryColor,
         fab_position: fabPosition,
         currency,
+        cart_mode: cartMode,
+        cart_url_template: cartMode === "url" ? cartUrlTemplate.trim() : cartUrlTemplate.trim() || null,
       })
       .eq("owner_id", user.id);
 
@@ -219,6 +233,47 @@ const ChatbotSettings = () => {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              {/* Add to cart */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <ShoppingCart className="h-4 w-4 text-blue-400" />
+                  "Add to cart" button on product cards
+                </Label>
+                <Select value={cartMode} onValueChange={(v) => setCartMode(v as CartMode)}>
+                  <SelectTrigger className="chatbot-input-dark" aria-label="Add to cart mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="off">Off (only "View product")</SelectItem>
+                    <SelectItem value="url">Open my store's add-to-cart link</SelectItem>
+                    <SelectItem value="event">Send a browser event (for developers)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {cartMode === "url" && (
+                  <div className="space-y-1.5">
+                    <Input
+                      id="cartUrlTemplate"
+                      aria-label="Add-to-cart link"
+                      value={cartUrlTemplate}
+                      onChange={(e) => setCartUrlTemplate(e.target.value)}
+                      placeholder="/cart/add?id={sku}&quantity=1"
+                      className="chatbot-input-dark font-mono text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Use <code>{"{sku}"}</code>, <code>{"{id}"}</code> or <code>{"{product_url}"}</code>. On
+                      Shopify, put each variant ID in the <code>sku</code> column of your catalog and use{" "}
+                      <code>{"/cart/add?id={sku}&quantity=1"}</code>.
+                    </p>
+                  </div>
+                )}
+                {cartMode === "event" && (
+                  <p className="text-xs text-muted-foreground">
+                    The widget fires <code>shopmind:add-to-cart</code> on <code>window</code> with{" "}
+                    <code>{"{ id, sku, name, price, product_url }"}</code>; your site's code adds the item.
+                  </p>
+                )}
               </div>
 
               {/* Save Button */}

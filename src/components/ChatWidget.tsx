@@ -5,6 +5,9 @@ import { Input } from "@/components/ui/input";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { readChatStream } from "@/lib/chat-stream";
+import { buildCartUrl, type CartMode } from "@/lib/cart";
+import { toast } from "sonner";
 import ProductCard from "./ProductCard";
 
 interface ChatProduct {
@@ -17,6 +20,7 @@ interface ChatProduct {
   stock_status: string;
   promo: string | null;
   product_url: string | null;
+  sku?: string | null;
 }
 
 interface Message {
@@ -37,6 +41,8 @@ const ChatWidget = () => {
   const [primaryColor, setPrimaryColor] = useState("#1E40AF");
   const [greeting, setGreeting] = useState(DEFAULT_GREETING);
   const [currency, setCurrency] = useState("BDT");
+  const [cartMode, setCartMode] = useState<CartMode>("off");
+  const [cartUrlTemplate, setCartUrlTemplate] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
@@ -84,7 +90,7 @@ const ChatWidget = () => {
     const loadBusiness = async () => {
       const { data } = await supabase
         .from("businesses")
-        .select("id, bot_name, greeting, primary_color, currency")
+        .select("id, bot_name, greeting, primary_color, currency, cart_mode, cart_url_template")
         .eq("owner_id", user.id)
         .maybeSingle();
       setBusinessId(data?.id ?? null);
@@ -92,6 +98,8 @@ const ChatWidget = () => {
       setPrimaryColor(data?.primary_color ?? "#1E40AF");
       setGreeting(data?.greeting || DEFAULT_GREETING);
       setCurrency(data?.currency ?? "BDT");
+      setCartMode((data?.cart_mode as CartMode) ?? "off");
+      setCartUrlTemplate(data?.cart_url_template ?? null);
     };
     void loadBusiness();
   }, [user]);
@@ -166,8 +174,55 @@ const ChatWidget = () => {
           message: text,
           business_id: businessId,
           session_id: sessionIdRef.current,
+          stream: true,
         }),
       });
+
+      const isStream = (res.headers.get("content-type") ?? "").includes("text/event-stream");
+      if (res.ok && isStream && res.body) {
+        const replyId = ++idRef.current;
+        let started = false;
+        let finished = false;
+        const update = (patch: Partial<Message>) =>
+          setMessages((prev) => prev.map((m) => (m.id === replyId ? { ...m, ...patch } : m)));
+
+        await readChatStream(res.body, (event) => {
+          if (event.type === "delta") {
+            if (!started) {
+              started = true;
+              setTyping(false);
+              setMessages((prev) => [...prev, { id: replyId, role: "assistant", content: event.text }]);
+            } else {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === replyId ? { ...m, content: m.content + event.text } : m)),
+              );
+            }
+            return;
+          }
+          finished = true;
+          const final: Message =
+            event.type === "done"
+              ? {
+                  id: replyId,
+                  role: "assistant",
+                  content: event.reply?.trim() || "I didn't get a reply. Please try again.",
+                  products: event.products?.length ? (event.products as ChatProduct[]) : undefined,
+                }
+              : { id: replyId, role: "assistant", content: event.error, isError: true };
+          if (started) update(final);
+          else {
+            started = true;
+            setMessages((prev) => [...prev, final]);
+          }
+        });
+        if (!finished && !started) {
+          setMessages((prev) => [
+            ...prev,
+            { id: replyId, role: "assistant", content: "The reply was cut off. Please try again.", isError: true },
+          ]);
+        }
+        return;
+      }
 
       let data: { reply?: string; products?: ChatProduct[]; error?: string } = {};
       try {
@@ -222,7 +277,20 @@ const ChatWidget = () => {
     } finally {
       setTyping(false);
     }
-  }, [input, messages, businessId, user]);
+  }, [input, businessId, user]);
+
+  // The dashboard is a preview: show what "Add to cart" would do on the store.
+  const cartPreview = (p: ChatProduct): (() => void) | undefined => {
+    if (cartMode === "event") {
+      return () => toast.info(`On your store this sends shopmind:add-to-cart for "${p.name}".`);
+    }
+    if (cartMode === "url" && cartUrlTemplate) {
+      const url = buildCartUrl(cartUrlTemplate, p);
+      if (!url) return undefined;
+      return () => toast.info(`On your store this opens ${url}`);
+    }
+    return undefined;
+  };
 
   const handleDragStart = (clientX: number, clientY: number) => {
     setIsDragging(true);
@@ -268,11 +336,11 @@ const ChatWidget = () => {
     handleDragStart(e.clientX, e.clientY);
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleMouseMove = (e: MouseEvent) => {
     handleDragMove(e.clientX, e.clientY);
   };
 
-  const handleMouseUp = (e: React.MouseEvent) => {
+  const handleMouseUp = () => {
     handleDragEnd();
     if (dragDistance < 5) {
       setOpen(true);
@@ -284,28 +352,50 @@ const ChatWidget = () => {
     handleDragStart(touch.clientX, touch.clientY);
   };
 
-  const handleTouchMove = (e: React.TouchEvent) => {
+  const handleTouchMove = (e: TouchEvent) => {
     const touch = e.touches[0];
     handleDragMove(touch.clientX, touch.clientY);
   };
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
+  const handleTouchEnd = () => {
     handleDragEnd();
     if (dragDistance < 5) {
       setOpen(true);
     }
   };
 
+  // Window listeners call the latest handlers through a ref, so they see
+  // current drag state without re-subscribing on every move.
+  const dragHandlersRef = useRef({
+    move: handleMouseMove,
+    up: handleMouseUp,
+    touchMove: handleTouchMove,
+    touchEnd: handleTouchEnd,
+  });
+  dragHandlersRef.current = {
+    move: handleMouseMove,
+    up: handleMouseUp,
+    touchMove: handleTouchMove,
+    touchEnd: handleTouchEnd,
+  };
+
   useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove as any);
-      window.addEventListener('mouseup', handleMouseUp as any);
-      return () => {
-        window.removeEventListener('mousemove', handleMouseMove as any);
-        window.removeEventListener('mouseup', handleMouseUp as any);
-      };
-    }
-  }, [isDragging, dragStart, bubbleStart, dragDistance, bubblePosition]);
+    if (!isDragging) return;
+    const move = (e: MouseEvent) => dragHandlersRef.current.move(e);
+    const up = () => dragHandlersRef.current.up();
+    const touchMove = (e: TouchEvent) => dragHandlersRef.current.touchMove(e);
+    const touchEnd = () => dragHandlersRef.current.touchEnd();
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    window.addEventListener("touchmove", touchMove);
+    window.addEventListener("touchend", touchEnd);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", touchMove);
+      window.removeEventListener("touchend", touchEnd);
+    };
+  }, [isDragging]);
 
   // Calculate panel position based on bubble position with boundary checking
   const getPanelPosition = () => {
@@ -430,7 +520,7 @@ const ChatWidget = () => {
               transformOrigin: panelPosition.transformOrigin,
               transition: 'all 300ms cubic-bezier(0.4, 0, 0.2, 1)',
               '--chat-primary-color': primaryColor,
-            } as any}
+            } as React.CSSProperties}
           >
             <div className="chat-panel-gradient-mesh" />
             
@@ -486,6 +576,7 @@ const ChatWidget = () => {
                             promo={p.promo}
                             product_url={p.product_url}
                             currency={currency}
+                            onAddToCart={cartPreview(p)}
                           />
                         ))}
                       </div>

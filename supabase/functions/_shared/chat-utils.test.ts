@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isFollowUp, isSmallTalk, parsePriceRange } from "./chat-utils";
+import {
+  createReplyExtractor,
+  isFollowUp,
+  isSmallTalk,
+  parsePriceRange,
+} from "./chat-utils";
 
 describe("parsePriceRange", () => {
   it.each([
@@ -36,5 +41,35 @@ describe("isFollowUp", () => {
     ["do you have a leather jacket for winter?", false],
   ])("%s", (message, expected) => {
     expect(isFollowUp(message)).toBe(expected);
+  });
+});
+
+describe("createReplyExtractor", () => {
+  const run = (chunks: string[]) => {
+    const push = createReplyExtractor();
+    return chunks.map((c) => push(c));
+  };
+
+  it("streams the reply value as it arrives", () => {
+    expect(run(['{"reply": "Hel', 'lo there', '!", "product_refs": ["P1"]}']))
+      .toEqual(["Hel", "lo there", "!"]);
+  });
+
+  it("waits for the key even when it is split", () => {
+    expect(run(['{"product_refs": [], "re', 'ply":"Hi', '"}'])).toEqual(["", "Hi", ""]);
+  });
+
+  it("decodes escapes split across chunks", () => {
+    // Raw JSON text: \" and ক and \n are JSON escapes, split mid-escape.
+    const chunks = [String.raw`{"reply":"a \"`, String.raw`quoted\" \u09`, String.raw`95 line\nnext"}`];
+    expect(run(chunks).join("")).toBe('a "quoted" ক line\nnext');
+  });
+
+  it("handles a backslash at the very end of a chunk", () => {
+    expect(run(['{"reply":"x \\', '"y"}']).join("")).toBe('x "y');
+  });
+
+  it("ignores text after the value ends", () => {
+    expect(run(['{"reply":"done"', ', "reply2":"x"}'])).toEqual(["done", ""]);
   });
 });

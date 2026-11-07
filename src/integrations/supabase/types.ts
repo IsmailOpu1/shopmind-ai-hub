@@ -17,6 +17,8 @@ export type Database = {
       businesses: {
         Row: {
           bot_name: string
+          cart_mode: string
+          cart_url_template: string | null
           created_at: string
           currency: string
           daily_message_limit: number
@@ -29,6 +31,8 @@ export type Database = {
         }
         Insert: {
           bot_name?: string
+          cart_mode?: string
+          cart_url_template?: string | null
           created_at?: string
           currency?: string
           daily_message_limit?: number
@@ -41,6 +45,8 @@ export type Database = {
         }
         Update: {
           bot_name?: string
+          cart_mode?: string
+          cart_url_template?: string | null
           created_at?: string
           currency?: string
           daily_message_limit?: number
@@ -52,6 +58,48 @@ export type Database = {
           primary_color?: string | null
         }
         Relationships: []
+      }
+      chat_events: {
+        Row: {
+          business_id: string
+          created_at: string
+          id: number
+          product_id: string | null
+          session_id: string
+          type: string
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          id?: never
+          product_id?: string | null
+          session_id: string
+          type: string
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          id?: never
+          product_id?: string | null
+          session_id?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_events_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_events_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       conversations: {
         Row: {
@@ -91,6 +139,7 @@ export type Database = {
           conversation_id: string
           created_at: string
           id: string
+          model: string | null
           product_ids: string[]
           role: string
         }
@@ -99,6 +148,7 @@ export type Database = {
           conversation_id: string
           created_at?: string
           id?: string
+          model?: string | null
           product_ids?: string[]
           role: string
         }
@@ -107,6 +157,7 @@ export type Database = {
           conversation_id?: string
           created_at?: string
           id?: string
+          model?: string | null
           product_ids?: string[]
           role?: string
         }
@@ -134,6 +185,7 @@ export type Database = {
           price: number | null
           product_url: string | null
           promo: string | null
+          sku: string | null
           stock_status: string
         }
         Insert: {
@@ -149,6 +201,7 @@ export type Database = {
           price?: number | null
           product_url?: string | null
           promo?: string | null
+          sku?: string | null
           stock_status?: string
         }
         Update: {
@@ -164,6 +217,7 @@ export type Database = {
           price?: number | null
           product_url?: string | null
           promo?: string | null
+          sku?: string | null
           stock_status?: string
         }
         Relationships: [
@@ -207,6 +261,7 @@ export type Database = {
           product_url: string
           promo: string
           similarity: number
+          sku: string
           stock_status: string
         }[]
       }
