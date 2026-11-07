@@ -9,7 +9,8 @@
   <h1>My Store</h1>
   <p>Demo storefront. The widget loads the bot name, greeting, colour, position and
     currency saved in Chatbot Settings. Add <code>?nudge=fast</code> to the URL to see
-    the proactive prompt after 3 seconds instead of 30.</p>
+    the proactive prompt after 3 seconds instead of 30, or <code>?cart=event</code> to
+    force the add-to-cart browser event (logged to the console).</p>
   <script>
     window.addEventListener("shopmind:add-to-cart", function (e) {
       console.log("[demo] add to cart", e.detail);
@@ -17,7 +18,8 @@
     var s = document.createElement("script");
     s.src = "/embed.js";
     s.setAttribute("data-business-id", "491b3c9c-41cd-4bc8-8a16-1e4965a85667");
-    s.setAttribute("data-enable-cart", "true");
+    // Cart button follows the dashboard setting; ?cart=event forces the browser event.
+    if (location.search.indexOf("cart=event") >= 0) s.setAttribute("data-cart-mode", "event");
     if (location.search.indexOf("nudge=fast") >= 0) s.setAttribute("data-proactive-delay", "3");
     document.body.appendChild(s);
   </script>

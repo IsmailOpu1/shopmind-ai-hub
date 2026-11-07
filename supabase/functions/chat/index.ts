@@ -1,9 +1,24 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import {
-  isFollowUp,
-  isSmallTalk,
-  parsePriceRange,
-} from "../_shared/chat-utils.ts";
+  createClient,
+  type SupabaseClient,
+} from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createReplyExtractor, isSmallTalk } from "../_shared/chat-utils.ts";
+import {
+  buildSearchPlan,
+  conversationContext,
+  focusOnCategories,
+  rerank,
+  type SearchPlan,
+} from "../_shared/search-plan.ts";
+import {
+  buildProductText,
+  EMBEDDABLE_COLUMNS,
+  type EmbeddableProduct,
+  embedText,
+} from "../_shared/embedding.ts";
+
+// Supabase Edge Runtime: keeps background work alive after the response.
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -12,11 +27,17 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-const GEMINI_EMBED_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent";
+const GEMINI_CHAT_MODEL =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite";
 
-const GEMINI_CHAT_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+// Free models, tried in order by OpenRouter. Free models get retired without
+// notice, so keep several; override with OPENROUTER_MODEL (comma-separated).
+const DEFAULT_OPENROUTER_MODELS = [
+  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3.5-super-vl:free",
+  "google/gemma-4-26b-a4b-it:free",
+];
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -25,6 +46,10 @@ const MAX_MESSAGE_CHARS = 500;
 const HISTORY_TURNS = 6;
 const MAX_CANDIDATES = 6;
 const MAX_CARDS = 3;
+// Search results fetched before re-ranking picks the best MAX_CANDIDATES.
+const SEARCH_POOL = 12;
+// Products without an embedding indexed in the background per chat request.
+const BACKGROUND_INDEX_BATCH = 3;
 
 const RATE_LIMIT_MESSAGES: Record<string, string> = {
   session_limit:
@@ -34,6 +59,9 @@ const RATE_LIMIT_MESSAGES: Record<string, string> = {
   business_limit:
     "Our assistant is very busy right now. Please try again later.",
 };
+
+const BUSY_MESSAGE = "I'm getting a lot of questions right now. Please try again in a minute.";
+const GENERIC_ERROR = "Sorry, something went wrong. Please try again.";
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   BDT: "৳",
@@ -61,6 +89,7 @@ type Product = {
   stock_status: string;
   promo: string | null;
   product_url: string | null;
+  sku: string | null;
 };
 
 type MatchedProduct = Product & { similarity: number };
@@ -68,7 +97,7 @@ type MatchedProduct = Product & { similarity: number };
 type PageContext = { title: string; url: string } | null;
 
 const PRODUCT_COLUMNS =
-  "id, name, description, price, image_url, category, stock_status, promo, product_url";
+  "id, name, description, price, image_url, category, stock_status, promo, product_url, sku";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -101,33 +130,49 @@ function formatPrice(price: number | null, currency: string): string {
 
 // --- Gemini ----------------------------------------------------------------
 
-// Quota or overload on Gemini's side; shoppers get a "try again shortly".
-class GeminiBusyError extends Error {}
+// Quota or overload at the model provider; shoppers get a "try again shortly".
+class ModelBusyError extends Error {}
 
 async function embedQuery(apiKey: string, text: string): Promise<number[]> {
-  const res = await fetch(GEMINI_EMBED_URL, {
-    method: "POST",
-    headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "models/gemini-embedding-001",
-      content: { parts: [{ text }] },
-      taskType: "RETRIEVAL_QUERY",
-      outputDimensionality: 3072,
-    }),
-  });
-  const raw = await res.text();
-  if (res.status === 429 || res.status === 503) {
-    throw new GeminiBusyError(`embedContent ${res.status}: ${raw}`);
+  const result = await embedText(apiKey, text, "RETRIEVAL_QUERY");
+  if (result.ok) return result.values;
+  if (result.status === 429 || result.status === 503) {
+    throw new ModelBusyError(`embedContent ${result.status}: ${result.body.slice(0, 300)}`);
   }
-  if (!res.ok) {
-    throw new Error(`Gemini embedContent failed (${res.status}): ${raw}`);
+  throw new Error(`Gemini embedContent failed (${result.status}): ${result.body.slice(0, 300)}`);
+}
+
+// Indexes a few products that have no embedding yet (new uploads or edited
+// products), so the catalog heals itself without the owner pressing a button.
+async function indexPendingProducts(
+  supabase: SupabaseClient,
+  apiKey: string,
+  businessId: string,
+): Promise<void> {
+  const { data, error } = await supabase
+    .from("products")
+    .select(EMBEDDABLE_COLUMNS)
+    .eq("business_id", businessId)
+    .is("embedding", null)
+    .limit(BACKGROUND_INDEX_BATCH);
+  if (error || !data?.length) return;
+  for (const product of data as EmbeddableProduct[]) {
+    const result = await embedText(apiKey, buildProductText(product), "RETRIEVAL_DOCUMENT");
+    if (!result.ok) {
+      console.warn("chat: background indexing stopped:", result.status);
+      return;
+    }
+    const { error: updateError } = await supabase
+      .from("products")
+      .update({ embedding: JSON.stringify(result.values) })
+      .eq("id", product.id)
+      .is("embedding", null);
+    if (updateError) {
+      console.warn("chat: background indexing update failed:", updateError.message);
+      return;
+    }
   }
-  const values = (JSON.parse(raw) as { embedding?: { values?: number[] } })
-    .embedding?.values;
-  if (!values || values.length !== 3072) {
-    throw new Error(`Expected 3072 embedding values, got ${values?.length ?? 0}`);
-  }
-  return values;
+  console.log("chat: background-indexed", data.length, "product(s)");
 }
 
 type GeminiContent = { role: "user" | "model"; parts: { text: string }[] };
@@ -141,69 +186,212 @@ const REPLY_SCHEMA = {
     product_refs: { type: "ARRAY", items: { type: "STRING" } },
   },
   required: ["reply", "product_refs"],
+  // Reply first, so it can be streamed before the refs arrive.
+  propertyOrdering: ["reply", "product_refs"],
 };
 
-async function generateReply(
-  apiKey: string,
-  systemPrompt: string,
-  contents: GeminiContent[],
-): Promise<AssistantTurn> {
+type GenerateBody = {
+  systemInstruction: { parts: { text: string }[] };
+  contents: GeminiContent[];
+  generationConfig: Record<string, unknown>;
+};
+
+function generateBody(systemPrompt: string, contents: GeminiContent[]): GenerateBody {
+  return {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents,
+    generationConfig: {
+      temperature: 0.6,
+      maxOutputTokens: 400,
+      responseMimeType: "application/json",
+      responseSchema: REPLY_SCHEMA,
+    },
+  };
+}
+
+type Provider = "gemini" | "openrouter";
+
+type LlmKeys = {
+  gemini: string;
+  openrouter: string | null;
+  openrouterModels: string[];
+};
+
+// POSTs with brief retries while the model is overloaded. Returns an OK
+// response whose body has not been read yet; throws ModelBusyError on 429/503.
+async function postWithRetry(
+  label: string,
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  retryOn429: boolean,
+): Promise<Response> {
   const maxRetries = 2;
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const res = await fetch(GEMINI_CHAT_URL, {
+  for (let attempt = 0;; attempt++) {
+    const res = await fetch(url, {
       method: "POST",
-      headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents,
-        generationConfig: {
-          temperature: 0.6,
-          maxOutputTokens: 400,
-          responseMimeType: "application/json",
-          responseSchema: REPLY_SCHEMA,
-        },
-      }),
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
+    if (res.ok) return res;
     const raw = await res.text();
-
-    if (!res.ok) {
-      if ((res.status === 503 || res.status === 429) && attempt < maxRetries) {
-        lastError = new Error(`Gemini generateContent failed (${res.status}): ${raw}`);
-        await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
-        continue;
-      }
-      if (res.status === 503 || res.status === 429) {
-        throw new GeminiBusyError(`generateContent ${res.status}: ${raw}`);
-      }
-      throw new Error(`Gemini generateContent failed (${res.status}): ${raw}`);
+    const busy = res.status === 503 || res.status === 429;
+    const retry = res.status === 503 || retryOn429;
+    if (busy && retry && attempt < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+      continue;
     }
+    if (busy) throw new ModelBusyError(`${label} ${res.status}: ${raw.slice(0, 300)}`);
+    throw new Error(`${label} failed (${res.status}): ${raw.slice(0, 300)}`);
+  }
+}
 
-    const data = JSON.parse(raw) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    const text = data.candidates?.[0]?.content?.parts
-      ?.map((p) => p.text ?? "").join("").trim();
-    if (!text) throw new Error("Gemini generateContent returned no text");
+function callGemini(keys: LlmKeys, stream: boolean, body: GenerateBody): Promise<Response> {
+  const url = stream
+    ? `${GEMINI_CHAT_MODEL}:streamGenerateContent?alt=sse`
+    : `${GEMINI_CHAT_MODEL}:generateContent`;
+  // A 429 is usually the daily quota, which retrying won't fix; with a
+  // fallback configured, hand over straight away.
+  return postWithRetry("gemini", url, { "x-goog-api-key": keys.gemini }, body, !keys.openrouter);
+}
 
+// Same prompt in OpenAI chat format for OpenRouter.
+function callOpenRouter(keys: LlmKeys, stream: boolean, body: GenerateBody): Promise<Response> {
+  const messages = [
+    { role: "system", content: body.systemInstruction.parts.map((p) => p.text).join("\n") },
+    ...body.contents.map((c) => ({
+      role: c.role === "model" ? "assistant" : "user",
+      content: c.parts.map((p) => p.text).join("\n"),
+    })),
+  ];
+  const [model, ...fallbacks] = keys.openrouterModels;
+  return postWithRetry(
+    "openrouter",
+    OPENROUTER_URL,
+    { Authorization: `Bearer ${keys.openrouter}`, "X-Title": "ShopMind AI" },
+    {
+      model,
+      ...(fallbacks.length ? { models: keys.openrouterModels } : {}),
+      messages,
+      temperature: 0.6,
+      // Some fallback models "think" first; without this they can spend the
+      // whole token budget reasoning and return an empty reply.
+      reasoning: { enabled: false },
+      max_tokens: 1000,
+      response_format: { type: "json_object" },
+      stream,
+    },
+    // Free-model 429s are per-minute limits: a quick retry only burns more
+    // of the limit. The model list above already covers a busy model.
+    false,
+  );
+}
+
+// Gemini first; OpenRouter when Gemini is busy or out of quota.
+async function startReply(
+  keys: LlmKeys,
+  stream: boolean,
+  body: GenerateBody,
+): Promise<{ provider: Provider; res: Response }> {
+  try {
+    return { provider: "gemini", res: await callGemini(keys, stream, body) };
+  } catch (e) {
+    if (!(e instanceof ModelBusyError) || !keys.openrouter) throw e;
+    console.warn("chat: Gemini busy, using OpenRouter fallback:", e.message);
     try {
-      const parsed = JSON.parse(text) as Partial<AssistantTurn>;
-      const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
-      if (!reply) throw new Error("empty reply");
-      return {
-        reply,
-        product_refs: Array.isArray(parsed.product_refs)
-          ? parsed.product_refs.filter((r): r is string => typeof r === "string")
-          : [],
-      };
-    } catch {
-      // Structured output failed; fall back to plain text without cards.
-      return { reply: text, product_refs: [] };
+      return { provider: "openrouter", res: await callOpenRouter(keys, stream, body) };
+    } catch (fallbackError) {
+      // Both providers failed: the shopper gets the "busy, try again" reply.
+      console.error("chat: OpenRouter fallback failed:", (fallbackError as Error).message);
+      throw new ModelBusyError(`both providers failed: ${(fallbackError as Error).message}`);
     }
   }
+}
 
-  throw lastError ?? new Error("Gemini generateContent failed after retries");
+type ModelChunk = {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  choices?: Array<{ message?: { content?: string }; delta?: { content?: string } }>;
+};
+
+function chunkText(provider: Provider, data: ModelChunk): string {
+  if (provider === "openrouter") {
+    const choice = data.choices?.[0];
+    return choice?.delta?.content ?? choice?.message?.content ?? "";
+  }
+  return data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+}
+
+function parseTurn(rawText: string): AssistantTurn {
+  // Some models wrap JSON in a code fence.
+  const text = rawText.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  // Free models occasionally return nothing; treat it like a busy model so
+  // the shopper is asked to try again rather than shown an error.
+  if (!text) throw new ModelBusyError("model returned no text");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Not JSON: the model answered in plain text; show it without cards.
+    return { reply: text, product_refs: [] };
+  }
+  const turn = (parsed ?? {}) as Partial<AssistantTurn>;
+  const reply = typeof turn.reply === "string" ? turn.reply.trim() : "";
+  // JSON without a reply (e.g. {"": ""}) must never reach the shopper.
+  if (!reply) throw new ModelBusyError(`model returned JSON without a reply: ${text.slice(0, 100)}`);
+  return {
+    reply,
+    product_refs: Array.isArray(turn.product_refs)
+      ? turn.product_refs.filter((r): r is string => typeof r === "string")
+      : [],
+  };
+}
+
+async function readReply(provider: Provider, res: Response): Promise<AssistantTurn> {
+  const data = await res.json() as ModelChunk & Record<string, unknown>;
+  const text = chunkText(provider, data);
+  if (!text.trim() && provider === "openrouter") {
+    const choice = (data.choices?.[0] ?? {}) as Record<string, unknown>;
+    console.warn("chat: openrouter empty reply", JSON.stringify({
+      model: data.model,
+      finish_reason: choice.finish_reason,
+      error: data.error,
+      usage: data.usage,
+    }).slice(0, 500));
+  }
+  return parseTurn(text);
+}
+
+// Reads the model's SSE stream, calling onDelta with reply text as it arrives.
+async function readReplyStream(
+  provider: Provider,
+  res: Response,
+  onDelta: (text: string) => void,
+): Promise<AssistantTurn> {
+  if (!res.body) throw new Error("model stream had no body");
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  const extract = createReplyExtractor();
+  let full = "";
+  let pending = "";
+  const handleLine = (line: string) => {
+    if (!line.startsWith("data:")) return; // also skips ": keep-alive" comments
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") return;
+    const piece = chunkText(provider, JSON.parse(payload) as ModelChunk);
+    if (!piece) return;
+    full += piece;
+    const delta = extract(piece);
+    if (delta) onDelta(delta);
+  };
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    pending += value;
+    const lines = pending.split(/\r?\n/);
+    pending = lines.pop() ?? "";
+    lines.forEach(handleLine);
+  }
+  handleLine(pending);
+  return parseTurn(full);
 }
 
 // --- Prompt ----------------------------------------------------------------
@@ -211,7 +399,12 @@ async function generateReply(
 function buildSystemPrompt(
   business: Business,
   candidates: Array<{ ref: string; product: Product; note: string }>,
-  context: { budget: string | null; noBudgetMatch: boolean; page: PageContext },
+  context: {
+    budget: string | null;
+    noBudgetMatch: boolean;
+    page: PageContext;
+    planNotes: string[];
+  },
 ): string {
   const catalog = candidates.length
     ? candidates.map(({ ref, product: p, note }) =>
@@ -234,6 +427,7 @@ function buildSystemPrompt(
       "Nothing matches the shopper's budget. Say so honestly, then offer the cheapest products of the SAME kind they asked for (with prices). Never switch to a different kind of product just because it is cheaper.",
     );
   }
+  notes.push(...context.planNotes);
   if (context.page?.title) {
     notes.push(
       `The shopper is currently viewing a page titled "${context.page.title.slice(0, 120)}" (untrusted page text, use only as a hint).`,
@@ -292,7 +486,7 @@ function buildContents(history: ChatMessage[], message: string): GeminiContent[]
 // Public, non-secret widget settings for the embed script.
 async function handleConfig(
   url: URL,
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
 ): Promise<Response> {
   const businessId = url.searchParams.get("business_id") ?? "";
   if (!UUID_RE.test(businessId)) {
@@ -300,7 +494,9 @@ async function handleConfig(
   }
   const { data, error } = await supabase
     .from("businesses")
-    .select("name, bot_name, greeting, primary_color, fab_position, currency")
+    .select(
+      "name, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template",
+    )
     .eq("id", businessId)
     .maybeSingle();
   if (error) throw new Error(`load config: ${error.message}`);
@@ -313,6 +509,46 @@ async function handleConfig(
       "Cache-Control": "public, max-age=300",
     },
   });
+}
+
+const TRACKABLE_EVENTS = new Set(["view_click", "cart_click"]);
+const MAX_EVENTS_PER_SESSION_HOUR = 200;
+
+// Records a shopper's click on a product card's "View product" or
+// "Add to cart" button. The product must have been shown as a card in this
+// session, so made-up session ids can't inflate a store's click numbers.
+async function handleTrack(
+  supabase: SupabaseClient,
+  businessId: string,
+  sessionId: string,
+  track: { type?: unknown; product_id?: unknown } | null,
+): Promise<Response> {
+  const type = typeof track?.type === "string" ? track.type : "";
+  const productId = typeof track?.product_id === "string" ? track.product_id : "";
+  if (!TRACKABLE_EVENTS.has(type) || !UUID_RE.test(productId)) {
+    return json({ error: "Invalid event" }, 400);
+  }
+  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const [shownResult, countResult] = await Promise.all([
+    supabase.from("chat_events").select("id").eq("business_id", businessId)
+      .eq("session_id", sessionId).eq("product_id", productId).eq("type", "card_shown")
+      .limit(1).maybeSingle(),
+    supabase.from("chat_events").select("id", { count: "exact", head: true })
+      .eq("business_id", businessId).eq("session_id", sessionId).gte("created_at", since),
+  ]);
+  if (shownResult.error) throw new Error(`track card lookup: ${shownResult.error.message}`);
+  if (!shownResult.data) return json({ error: "Product was not shown in this chat" }, 404);
+  if ((countResult.count ?? 0) >= MAX_EVENTS_PER_SESSION_HOUR) {
+    return json({ error: "Too many events" }, 429);
+  }
+  const { error } = await supabase.from("chat_events").insert({
+    business_id: businessId,
+    session_id: sessionId,
+    product_id: productId,
+    type,
+  });
+  if (error) throw new Error(`track insert: ${error.message}`);
+  return json({ ok: true });
 }
 
 Deno.serve(async (req: Request) => {
@@ -328,6 +564,13 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Assistant is not configured" }, 500);
   }
   const supabase = createClient(supabaseUrl, serviceKey);
+  const configuredModels = (Deno.env.get("OPENROUTER_MODEL") ?? "")
+    .split(",").map((m) => m.trim()).filter(Boolean);
+  const llmKeys: LlmKeys = {
+    gemini: geminiKey,
+    openrouter: Deno.env.get("OPENROUTER_API_KEY") || null,
+    openrouterModels: configuredModels.length ? configuredModels : DEFAULT_OPENROUTER_MODELS,
+  };
 
   if (req.method === "GET") {
     try {
@@ -348,6 +591,8 @@ Deno.serve(async (req: Request) => {
     message?: unknown;
     business_id?: unknown;
     session_id?: unknown;
+    stream?: unknown;
+    track?: { type?: unknown; product_id?: unknown };
     page?: { title?: unknown; url?: unknown };
   };
   try {
@@ -363,12 +608,25 @@ Deno.serve(async (req: Request) => {
   const sessionId = typeof body.session_id === "string"
     ? body.session_id.trim()
     : "";
+  const wantStream = body.stream === true;
   const page: PageContext = body.page && typeof body.page.title === "string"
     ? {
       title: body.page.title.slice(0, 200),
       url: typeof body.page.url === "string" ? body.page.url.slice(0, 500) : "",
     }
     : null;
+
+  if (body.track !== undefined) {
+    if (!UUID_RE.test(businessId) || !SESSION_RE.test(sessionId)) {
+      return json({ error: "business_id or session_id is invalid" }, 400);
+    }
+    try {
+      return await handleTrack(supabase, businessId, sessionId, body.track);
+    } catch (e) {
+      console.error("chat track:", e instanceof Error ? e.message : String(e));
+      return json({ error: "Could not record event" }, 500);
+    }
+  }
 
   if (!message) {
     return json({ error: "message is required" }, 400);
@@ -394,7 +652,7 @@ Deno.serve(async (req: Request) => {
     const ipHash = await hashIp(req, ipSalt);
     const smallTalk = isSmallTalk(message);
 
-    const [limitResult, businessResult, conversationResult] = await Promise.all([
+    const [limitResult, businessResult, conversationResult, categoriesResult] = await Promise.all([
       supabase.rpc("check_chat_rate_limit", {
         p_business_id: businessId,
         p_session_id: sessionId,
@@ -411,11 +669,20 @@ Deno.serve(async (req: Request) => {
         .eq("business_id", businessId)
         .eq("session_id", sessionId)
         .maybeSingle(),
+      supabase
+        .from("products")
+        .select("category")
+        .eq("business_id", businessId)
+        .not("category", "is", null)
+        .limit(2000),
     ]);
     mark("checks");
 
     if (limitResult.error) {
       throw new Error(`rate limit check: ${limitResult.error.message}`);
+    }
+    if (businessResult.error) {
+      throw new Error(`load business: ${businessResult.error.message}`);
     }
     if (limitResult.data === "unknown_business" || !businessResult.data) {
       return json({ error: "Store not found" }, 404);
@@ -426,10 +693,14 @@ Deno.serve(async (req: Request) => {
         429,
       );
     }
-    if (businessResult.error) {
-      throw new Error(`load business: ${businessResult.error.message}`);
-    }
     const business = businessResult.data as Business;
+    if (typeof EdgeRuntime !== "undefined") {
+      EdgeRuntime.waitUntil(
+        indexPendingProducts(supabase, geminiKey, businessId).catch((e) =>
+          console.warn("chat: background indexing failed:", e instanceof Error ? e.message : String(e))
+        ),
+      );
+    }
 
     let history: ChatMessage[] = [];
     if (conversationResult.data) {
@@ -437,7 +708,10 @@ Deno.serve(async (req: Request) => {
         .from("messages")
         .select("role, content, product_ids")
         .eq("conversation_id", conversationResult.data.id)
+        // A turn's question and reply share one timestamp (same insert);
+        // "assistant" < "user", so newest-first puts each reply before its question.
         .order("created_at", { ascending: false })
+        .order("role", { ascending: true })
         .limit(HISTORY_TURNS);
       if (historyError) throw new Error(`load history: ${historyError.message}`);
       history = ((recent ?? []) as ChatMessage[]).reverse();
@@ -456,25 +730,43 @@ Deno.serve(async (req: Request) => {
       candidates.push({ ref: `P${candidates.length + 1}`, product, note });
     };
 
-    const budget = parsePriceRange(message);
     let noBudgetMatch = false;
+    let plan: SearchPlan | null = null;
+    const storeCategories = [
+      ...new Set(
+        ((categoriesResult.data ?? []) as Array<{ category: string | null }>)
+          .map((r) => r.category?.trim())
+          .filter((c): c is string => Boolean(c)),
+      ),
+    ];
 
     if (!smallTalk) {
-      const followUp = isFollowUp(message) && previousUserMessage !== "";
-      const searchText = followUp ? `${previousUserMessage}\n${message}` : message;
+      // The search text only depends on the conversation, so the embedding can
+      // start while last turn's products load; the plan then adds their prices.
+      const { searchText } = conversationContext(message, previousUserMessage, storeCategories);
 
       const [embedding, shownResult] = await Promise.all([
         embedQuery(geminiKey, searchText),
-        followUp && lastShownIds.length
+        lastShownIds.length
           ? supabase.from("products").select(PRODUCT_COLUMNS)
             .eq("business_id", businessId).in("id", lastShownIds)
           : Promise.resolve({ data: [] as Product[], error: null }),
       ]);
       mark("embed");
+      const shownProducts = (shownResult.data ?? []) as Product[];
+
+      plan = buildSearchPlan({
+        message,
+        previousUserMessage,
+        lastShownPrices: shownProducts.map((p) => Number(p.price)).filter((n) => Number.isFinite(n)),
+        storeCategories,
+      });
 
       // Products shown last turn come first so "those" resolves correctly.
-      for (const p of (shownResult.data ?? []) as Product[]) {
-        addCandidate(p, "shown to the shopper in your previous reply");
+      if (plan.followUp) {
+        for (const p of shownProducts) {
+          addCandidate(p, "shown to the shopper in your previous reply");
+        }
       }
 
       const search = async (min: number | null, max: number | null) => {
@@ -482,8 +774,8 @@ Deno.serve(async (req: Request) => {
           p_business_id: businessId,
           query_embedding: `[${embedding.join(",")}]`,
           match_threshold: 0.3,
-          match_count: 8,
-          query_text: searchText,
+          match_count: SEARCH_POOL,
+          query_text: plan!.searchText,
           min_price: min,
           max_price: max,
         });
@@ -491,15 +783,23 @@ Deno.serve(async (req: Request) => {
         return (data ?? []) as MatchedProduct[];
       };
 
-      const hasBudget = budget.min !== null || budget.max !== null;
-      let matches = await search(budget.min, budget.max);
-      if (hasBudget && matches.length === 0) {
+      // "Fits the budget" means fits it in the asked-for category, if any:
+      // cheaper shirts don't answer a question about cheaper shoes.
+      const wanted = new Set(plan.categories.map((c) => c.toLowerCase()));
+      const fits = (products: MatchedProduct[]) =>
+        wanted.size
+          ? products.some((p) => p.category && wanted.has(p.category.toLowerCase()))
+          : products.length > 0;
+
+      const hasBudget = plan.minPrice !== null || plan.maxPrice !== null;
+      let matches = await search(plan.minPrice, plan.maxPrice);
+      if (hasBudget && !fits(matches)) {
         noBudgetMatch = true;
         matches = await search(null, null);
       }
       mark("search");
 
-      for (const p of matches) {
+      for (const p of focusOnCategories(rerank(matches, plan), plan)) {
         if (candidates.length >= MAX_CANDIDATES) break;
         addCandidate(p);
       }
@@ -517,7 +817,10 @@ Deno.serve(async (req: Request) => {
           .eq("stock_status", "in_stock")
           .in("category", oosCategories)
           .limit(3);
-        if (budget.max !== null && !noBudgetMatch) altQuery = altQuery.lte("price", budget.max);
+        if (!noBudgetMatch) {
+          if (plan.maxPrice !== null) altQuery = altQuery.lte("price", plan.maxPrice);
+          if (plan.minPrice !== null) altQuery = altQuery.gte("price", plan.minPrice);
+        }
         const { data: alternatives } = await altQuery;
         for (const p of (alternatives ?? []) as Product[]) {
           addCandidate(p, "in-stock alternative in the same category");
@@ -525,86 +828,148 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const budgetText = budget.min !== null && budget.max !== null
-      ? `${formatPrice(budget.min, business.currency)} to ${formatPrice(budget.max, business.currency)}`
-      : budget.max !== null
-      ? `up to ${formatPrice(budget.max, business.currency)}`
-      : budget.min !== null
-      ? `at least ${formatPrice(budget.min, business.currency)}`
+    const minPrice = plan?.minPrice ?? null;
+    const maxPrice = plan?.maxPrice ?? null;
+    const budgetText = minPrice !== null && maxPrice !== null
+      ? `${formatPrice(minPrice, business.currency)} to ${formatPrice(maxPrice, business.currency)}`
+      : maxPrice !== null
+      ? `up to ${formatPrice(maxPrice, business.currency)}`
+      : minPrice !== null
+      ? `at least ${formatPrice(minPrice, business.currency)}`
       : null;
 
-    const turn = await generateReply(
-      geminiKey,
+    const requestBody = generateBody(
       buildSystemPrompt(business, candidates, {
         budget: budgetText,
         noBudgetMatch,
         page,
+        planNotes: plan?.notes ?? [],
       }),
       buildContents(history, message),
     );
-    mark("llm");
 
-    const byRef = new Map(candidates.map((c) => [c.ref.toUpperCase(), c.product]));
-    const products: Product[] = [];
-    for (const ref of turn.product_refs) {
-      const p = byRef.get(ref.trim().replace(/[[\]]/g, "").toUpperCase());
-      if (p && !products.some((x) => x.id === p.id)) products.push(p);
-      if (products.length >= MAX_CARDS) break;
+    const toCards = (turn: AssistantTurn): Product[] => {
+      const byRef = new Map(candidates.map((c) => [c.ref.toUpperCase(), c.product]));
+      const products: Product[] = [];
+      for (const ref of turn.product_refs) {
+        const p = byRef.get(ref.trim().replace(/[[\]]/g, "").toUpperCase());
+        if (p && !products.some((x) => x.id === p.id)) products.push(p);
+        if (products.length >= MAX_CARDS) break;
+      }
+      return products;
+    };
+
+    const save = async (reply: string, products: Product[], model: Provider) => {
+      const { data: conversation, error: convError } = conversationResult.data
+        ? { data: conversationResult.data, error: null }
+        : await supabase
+          .from("conversations")
+          .upsert(
+            { business_id: businessId, session_id: sessionId, ip_hash: ipHash },
+            { onConflict: "business_id,session_id" },
+          )
+          .select("id")
+          .single();
+      if (convError || !conversation) {
+        throw new Error(`upsert conversation: ${convError?.message}`);
+      }
+      const { error: insertError } = await supabase.from("messages").insert([
+        // Every row lists product_ids: a bulk insert sends NULL (not the column
+        // default) for keys missing from some rows.
+        {
+          conversation_id: conversation.id,
+          role: "user",
+          content: message,
+          product_ids: [],
+          // How the search went, for the analytics page's catalog gaps.
+          search_status: smallTalk
+            ? "skipped"
+            : noBudgetMatch
+            ? "no_budget_match"
+            : products.length
+            ? "matched"
+            : "no_match",
+        },
+        {
+          conversation_id: conversation.id,
+          role: "assistant",
+          content: reply,
+          product_ids: products.map((p) => p.id),
+          model,
+          search_status: null,
+        },
+      ]);
+      if (products.length) {
+        const { error: eventError } = await supabase.from("chat_events").insert(
+          products.map((p) => ({
+            business_id: businessId,
+            session_id: sessionId,
+            product_id: p.id,
+            type: "card_shown",
+          })),
+        );
+        if (eventError) console.error("chat: failed to record card events:", eventError.message);
+      }
+      if (insertError) {
+        // Non-fatal for the shopper, but rate limits depend on these rows.
+        console.error("chat: failed to save messages:", insertError.message);
+      }
+      mark("total");
+      console.log("chat timings", JSON.stringify(timings));
+    };
+
+    if (!wantStream) {
+      const { provider, res } = await startReply(llmKeys, false, requestBody);
+      const turn = await readReply(provider, res);
+      mark("llm");
+      console.log("chat model", provider);
+      const products = toCards(turn);
+      await save(turn.reply, products, provider);
+      return json({ reply: turn.reply, products, currency: business.currency });
     }
 
-    const { data: conversation, error: convError } = conversationResult.data
-      ? { data: conversationResult.data, error: null }
-      : await supabase
-        .from("conversations")
-        .upsert(
-          { business_id: businessId, session_id: sessionId, ip_hash: ipHash },
-          { onConflict: "business_id,session_id" },
-        )
-        .select("id")
-        .single();
-    if (convError || !conversation) {
-      throw new Error(`upsert conversation: ${convError?.message}`);
-    }
-
-    const { error: insertError } = await supabase.from("messages").insert([
-      // Every row lists product_ids: a bulk insert sends NULL (not the column
-      // default) for keys missing from some rows.
-      {
-        conversation_id: conversation.id,
-        role: "user",
-        content: message,
-        product_ids: [],
+    // Streaming. Errors before the first byte (quota, bad request) still come
+    // back as normal JSON errors; later ones arrive as an "error" event.
+    const { provider, res: upstream } = await startReply(llmKeys, true, requestBody);
+    console.log("chat model", provider);
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = (event: Record<string, unknown>) =>
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        try {
+          let first = true;
+          const turn = await readReplyStream(provider, upstream, (text) => {
+            if (first) {
+              mark("first_token");
+              first = false;
+            }
+            send({ type: "delta", text });
+          });
+          mark("llm");
+          const products = toCards(turn);
+          send({ type: "done", reply: turn.reply, products, currency: business.currency });
+          await save(turn.reply, products, provider);
+        } catch (e) {
+          console.error("chat stream:", e instanceof Error ? e.message : String(e));
+          send({ type: "error", error: e instanceof ModelBusyError ? BUSY_MESSAGE : GENERIC_ERROR });
+        } finally {
+          controller.close();
+        }
       },
-      {
-        conversation_id: conversation.id,
-        role: "assistant",
-        content: turn.reply,
-        product_ids: products.map((p) => p.id),
+    });
+    return new Response(stream, {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
       },
-    ]);
-    if (insertError) {
-      // Non-fatal for the shopper, but rate limits depend on these rows.
-      console.error("chat: failed to save messages:", insertError.message);
-    }
-    mark("total");
-    console.log("chat timings", JSON.stringify(timings));
-
-    return json({
-      reply: turn.reply,
-      products,
-      currency: business.currency,
     });
   } catch (e) {
     console.error("chat:", e instanceof Error ? e.message : String(e));
-    if (e instanceof GeminiBusyError) {
-      return json(
-        { error: "I'm getting a lot of questions right now. Please try again in a minute." },
-        503,
-      );
+    if (e instanceof ModelBusyError) {
+      return json({ error: BUSY_MESSAGE }, 503);
     }
-    return json(
-      { error: "Sorry, something went wrong. Please try again." },
-      500,
-    );
+    return json({ error: GENERIC_ERROR }, 500);
   }
 });

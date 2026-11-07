@@ -60,3 +60,53 @@ export function parsePriceRange(
     max: max ? toNumber(max[1], max[2]) : null,
   };
 }
+
+/**
+ * Pulls the "reply" string out of a JSON object that arrives in pieces
+ * (Gemini streaming with a JSON response schema). Each push returns the newly
+ * decoded reply text, so it can be forwarded to the shopper as it is written.
+ */
+export function createReplyExtractor(field = "reply") {
+  let buf = "";
+  let pos = -1; // index of the next unread character inside the string value
+  let done = false;
+  const opener = new RegExp(String.raw`"${field}"\s*:\s*"`);
+  const simple: Record<string, string> = {
+    '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t",
+  };
+
+  return function push(chunk: string): string {
+    buf += chunk;
+    if (done) return "";
+    if (pos < 0) {
+      const m = opener.exec(buf);
+      if (!m) return "";
+      pos = m.index + m[0].length;
+    }
+    let out = "";
+    while (pos < buf.length) {
+      const c = buf[pos];
+      if (c === '"') {
+        done = true;
+        break;
+      }
+      if (c !== "\\") {
+        out += c;
+        pos++;
+        continue;
+      }
+      const next = buf[pos + 1];
+      if (next === undefined) break; // escape split across chunks
+      if (next === "u") {
+        const hex = buf.slice(pos + 2, pos + 6);
+        if (hex.length < 4) break;
+        out += String.fromCharCode(parseInt(hex, 16));
+        pos += 6;
+        continue;
+      }
+      out += simple[next] ?? next;
+      pos += 2;
+    }
+    return out;
+  };
+}

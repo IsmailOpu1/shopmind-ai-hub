@@ -33,6 +33,10 @@
     primary_color: attr("data-primary-color") || "#1E40AF",
     fab_position: (attr("data-position") || "bottom-right").toLowerCase(),
     currency: attr("data-currency") || "BDT",
+    // "off" | "event" (shopmind:add-to-cart DOM event) | "url" (cart_url_template)
+    cart_mode:
+      attr("data-cart-mode") || (attr("data-enable-cart") === "true" ? "event" : "off"),
+    cart_url_template: attr("data-cart-url"),
   };
   var overridden = {
     bot_name: !!attr("data-bot-name"),
@@ -40,8 +44,9 @@
     primary_color: !!attr("data-primary-color"),
     fab_position: !!attr("data-position"),
     currency: !!attr("data-currency"),
+    cart_mode: !!(attr("data-cart-mode") || attr("data-enable-cart")),
+    cart_url_template: !!attr("data-cart-url"),
   };
-  var enableCart = attr("data-enable-cart") === "true";
   var proactiveAttr = attr("data-proactive-delay");
   var proactiveDelay = proactiveAttr === "off" ? 0 : Number(proactiveAttr || 30);
   if (!isFinite(proactiveDelay) || proactiveDelay < 0) proactiveDelay = 30;
@@ -342,17 +347,69 @@
     );
   }
 
+  // Fills {id}, {sku} and {product_url} in the store's cart URL template.
+  // Returns null when a placeholder has no value or the result isn't a
+  // web/relative URL.
+  function cartUrl(p) {
+    var template = config.cart_url_template;
+    if (!template) return null;
+    var values = { id: p.id, sku: p.sku, product_url: p.product_url };
+    var missing = false;
+    var url = template.replace(/\{(id|sku|product_url)\}/g, function (_, key) {
+      var v = values[key];
+      if (v == null || v === "") missing = true;
+      return encodeURIComponent(v == null ? "" : String(v));
+    });
+    if (missing || !/^(https?:\/\/|\/)/i.test(url)) return null;
+    return url;
+  }
+
   function renderCardActions(p) {
     var url = safeUrl(p.product_url);
+    var pid = esc(p.id);
     var html = "";
     if (url) {
       html +=
-        '<a class="sm-card-btn" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">View product</a>';
+        '<a class="sm-card-btn" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer"' +
+        ' data-sm-track="view_click" data-sm-pid="' + pid + '">View product</a>';
     }
-    if (enableCart && p.stock_status === "in_stock") {
-      html += '<button type="button" class="sm-card-btn sm-card-btn-primary" data-sm-cart="' + esc(p.id) + '">Add to cart</button>';
+    if (p.stock_status === "in_stock") {
+      if (config.cart_mode === "event") {
+        html +=
+          '<button type="button" class="sm-card-btn sm-card-btn-primary" data-sm-cart="' + pid + '"' +
+          ' data-sm-track="cart_click" data-sm-pid="' + pid + '">Add to cart</button>';
+      } else if (config.cart_mode === "url") {
+        var cart = cartUrl(p);
+        if (cart) {
+          html +=
+            '<a class="sm-card-btn sm-card-btn-primary" href="' + esc(cart) + '"' +
+            ' data-sm-track="cart_click" data-sm-pid="' + pid + '">Add to cart</a>';
+        }
+      }
     }
     return html ? '<div class="sm-card-actions">' + html + "</div>" : "";
+  }
+
+  // Tells the server about a button click (for the store's analytics).
+  // keepalive lets the request finish even if the click navigates away.
+  function track(type, productId) {
+    if (!SM_SUPABASE_URL || !SM_ANON_KEY) return;
+    try {
+      fetch(chatUrl, {
+        method: "POST",
+        keepalive: true,
+        headers: { "Content-Type": "application/json", apikey: SM_ANON_KEY },
+        body: JSON.stringify({
+          business_id: businessId,
+          session_id: sessionId,
+          track: { type: type, product_id: productId },
+        }),
+      }).catch(function () {
+        /* analytics only */
+      });
+    } catch (e) {
+      /* analytics only */
+    }
   }
 
   var productsById = {};
@@ -374,6 +431,8 @@
         '">' +
         '<div class="sm-bubble ' +
         bubClass +
+        '" data-sm-msg="' +
+        m.id +
         '">' +
         esc(m.content) +
         "</div></div>";
@@ -456,13 +515,17 @@
   // "Add to cart" is a DOM event the store's own code can listen for.
   thread.addEventListener("click", function (e) {
     var target = e.target;
-    if (!target || !target.getAttribute) return;
+    if (!target || !target.closest) return;
+    var tracked = target.closest("[data-sm-track]");
+    if (tracked) track(tracked.getAttribute("data-sm-track"), tracked.getAttribute("data-sm-pid"));
+    target = target.closest("[data-sm-cart]");
+    if (!target) return;
     var cartId = target.getAttribute("data-sm-cart");
     if (cartId && productsById[cartId]) {
       var p = productsById[cartId];
       window.dispatchEvent(
         new CustomEvent("shopmind:add-to-cart", {
-          detail: { id: p.id, name: p.name, price: p.price, product_url: p.product_url || null },
+          detail: { id: p.id, sku: p.sku || null, name: p.name, price: p.price, product_url: p.product_url || null },
         })
       );
       target.textContent = "Added";
@@ -515,6 +578,82 @@
     panel.classList.remove("sm-open");
   });
 
+  function pushReply(data, existing) {
+    var reply =
+      typeof data.reply === "string" && data.reply.trim()
+        ? data.reply.trim()
+        : "I didn't get a reply. Please try again.";
+    var products = Array.isArray(data.products) ? data.products : [];
+    var msg = existing || { id: ++msgId, role: "assistant" };
+    msg.content = reply;
+    msg.products = products.length ? products : undefined;
+    if (!existing) messages.push(msg);
+  }
+
+  // Reads the chat function's event stream: "delta" events carry reply text
+  // as it is written, "done" carries the final reply and product cards.
+  async function readStream(res) {
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var pending = "";
+    var msg = null;
+    var finished = false;
+
+    function handle(event) {
+      if (event.type === "delta") {
+        if (!msg) {
+          msg = { id: ++msgId, role: "assistant", content: "" };
+          messages.push(msg);
+          typing = false;
+          renderMessages();
+        }
+        msg.content += event.text || "";
+        var el = thread.querySelector('[data-sm-msg="' + msg.id + '"]');
+        if (el) el.textContent = msg.content;
+        scrollThread();
+      } else if (event.type === "done") {
+        finished = true;
+        pushReply(event, msg);
+      } else if (event.type === "error") {
+        finished = true;
+        var err = { role: "assistant", content: event.error || "Sorry, something went wrong.", isError: true };
+        if (msg) {
+          msg.content = err.content;
+          msg.isError = true;
+        } else {
+          err.id = ++msgId;
+          messages.push(err);
+        }
+      }
+    }
+
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      pending += decoder.decode(chunk.value, { stream: true });
+      var parts = pending.split("\n\n");
+      pending = parts.pop();
+      for (var i = 0; i < parts.length; i++) {
+        var line = parts[i].trim();
+        if (line.indexOf("data:") !== 0) continue;
+        try {
+          handle(JSON.parse(line.slice(5)));
+        } catch (e) {
+          /* skip a malformed event */
+        }
+      }
+    }
+    if (!finished) {
+      if (msg && msg.content) return;
+      messages.push({
+        id: ++msgId,
+        role: "assistant",
+        content: "The reply was cut off. Please try again.",
+        isError: true,
+      });
+    }
+  }
+
   async function send() {
     var text = (input.value || "").trim();
     if (!text || typing) return;
@@ -548,9 +687,16 @@
           message: text,
           business_id: businessId,
           session_id: sessionId,
+          stream: true,
           page: { title: document.title || "", url: location.origin + location.pathname },
         }),
       });
+
+      var isStream = (res.headers.get("content-type") || "").indexOf("text/event-stream") >= 0;
+      if (res.ok && isStream && res.body) {
+        await readStream(res);
+        return;
+      }
 
       var data = {};
       try {
@@ -569,17 +715,7 @@
           isError: true,
         });
       } else {
-        var reply =
-          typeof data.reply === "string" && data.reply.trim()
-            ? data.reply.trim()
-            : "I didn't get a reply. Please try again.";
-        var products = Array.isArray(data.products) ? data.products : [];
-        messages.push({
-          id: ++msgId,
-          role: "assistant",
-          content: reply,
-          products: products.length ? products : undefined,
-        });
+        pushReply(data);
       }
     } catch (e) {
       messages.push({

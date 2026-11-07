@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, ShoppingCart } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 
 interface ProductCardProps {
@@ -13,6 +13,9 @@ interface ProductCardProps {
   promo?: string | null;
   product_url?: string | null;
   currency?: string;
+  /** Shown only for in-stock products. */
+  onAddToCart?: () => void;
+  onViewClick?: () => void;
 }
 
 const ProductCard = ({
@@ -25,6 +28,8 @@ const ProductCard = ({
   promo,
   product_url,
   currency = "BDT",
+  onAddToCart,
+  onViewClick,
 }: ProductCardProps) => {
   const link = product_url && /^https?:\/\//i.test(product_url) ? product_url : null;
   return (
@@ -84,14 +89,22 @@ const ProductCard = ({
         )}
 
         {/* Actions */}
-        {link && (
+        {(link || (onAddToCart && stock_status === "in_stock")) && (
           <div className="flex gap-2 pt-1">
-            <Button asChild size="sm" variant="outline" className="flex-1 text-xs h-8">
-              <a href={link} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="mr-1 h-3 w-3" />
-                View product
-              </a>
-            </Button>
+            {link && (
+              <Button asChild size="sm" variant="outline" className="flex-1 text-xs h-8">
+                <a href={link} target="_blank" rel="noopener noreferrer" onClick={onViewClick}>
+                  <ExternalLink className="mr-1 h-3 w-3" />
+                  View product
+                </a>
+              </Button>
+            )}
+            {onAddToCart && stock_status === "in_stock" && (
+              <Button size="sm" className="flex-1 text-xs h-8" onClick={onAddToCart}>
+                <ShoppingCart className="mr-1 h-3 w-3" />
+                Add to cart
+              </Button>
+            )}
           </div>
         )}
       </div>

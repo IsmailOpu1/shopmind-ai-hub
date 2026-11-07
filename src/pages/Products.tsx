@@ -17,8 +17,8 @@ import { Upload, Trash2, FileSpreadsheet, X, Package, CheckCircle2, ArrowUpRight
 import LoadingSpinner from "@/components/LoadingSpinner";
 import EmptyState from "@/components/EmptyState";
 import Papa from "papaparse";
+import { indexProducts } from "@/lib/embed-products";
 import { formatPrice } from "@/lib/utils";
-import * as XLSX from "xlsx";
 
 interface Product {
   id: string;
@@ -31,7 +31,7 @@ interface Product {
   promo: string | null;
 }
 
-const EXPECTED_COLS = ["name", "description", "price", "image_url", "category", "stock_status", "promo", "product_url"];
+const EXPECTED_COLS = ["name", "description", "price", "image_url", "category", "stock_status", "promo", "product_url", "sku"];
 
 // "৳1,299", "Tk 1299.50" or 1299 -> 1299; anything unparseable -> null.
 const parsePrice = (value: unknown): number | null => {
@@ -126,45 +126,6 @@ const Products = () => {
     }).filter((r) => r.name && String(r.name).trim() !== "");
   };
 
-  const triggerEmbedProducts = async (bizId: string) => {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-    if (!supabaseUrl || !anonKey) {
-      throw new Error("Missing Supabase URL or anon key.");
-    }
-
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) {
-      throw new Error("No session; sign in again to generate embeddings.");
-    }
-
-    const res = await fetch(`${supabaseUrl}/functions/v1/embed-products`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        apikey: anonKey,
-      },
-      body: JSON.stringify({ business_id: bizId }),
-    });
-
-    let payload: { error?: string; embedded_count?: number } = {};
-    try {
-      payload = await res.json();
-    } catch {
-      /* non-JSON body */
-    }
-
-    if (!res.ok) {
-      const msg =
-        typeof payload.error === "string" && payload.error
-          ? payload.error
-          : `Embedding request failed (${res.status}). Products were saved.`;
-      throw new Error(msg);
-    }
-  };
-
   const insertProducts = async (rows: Record<string, unknown>[]) => {
     if (!businessId) return;
     setUploading(true);
@@ -178,6 +139,7 @@ const Products = () => {
       stock_status: normalizeStockStatus(r.stock_status),
       promo: r.promo ? String(r.promo) : null,
       product_url: parseUrl(r.product_url),
+      sku: r.sku != null && String(r.sku).trim() ? String(r.sku).trim().slice(0, 100) : null,
     }));
 
     const { error } = await supabase.from("products").insert(toInsert);
@@ -191,7 +153,7 @@ const Products = () => {
 
     const embedToastId = toast.loading("Generating AI embeddings...");
     try {
-      await triggerEmbedProducts(businessId);
+      await indexProducts(businessId);
       toast.success("Products uploaded and AI ready!", { id: embedToastId });
     } catch (e) {
       const message =
@@ -223,8 +185,10 @@ const Products = () => {
       });
     } else if (ext === "xlsx" || ext === "xls") {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        // The spreadsheet parser is large; load it only when it's needed.
+        const XLSX = await import("xlsx");
         const wb = XLSX.read(data, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(sheet) as Record<string, unknown>[];
@@ -338,7 +302,10 @@ const Products = () => {
       {!selectedFile && (
         <p className="text-xs text-muted-foreground -mt-2">
           Columns: <code>name</code> (required), <code>description</code>, <code>price</code>, <code>category</code>,{" "}
-          <code>stock_status</code>, <code>promo</code>, <code>image_url</code>, <code>product_url</code>
+          <code>stock_status</code>, <code>promo</code>, <code>image_url</code>, <code>product_url</code>, <code>sku</code>.{" "}
+          <a href="/sample-catalog.csv" download className="text-blue-400 underline-offset-2 hover:underline">
+            Download a sample
+          </a>
         </p>
       )}
       {!selectedFile ? null : (

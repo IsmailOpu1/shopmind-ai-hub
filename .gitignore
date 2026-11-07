@@ -31,3 +31,6 @@ public/embed.js
 .env.*
 !.env.example
 supabase/.temp
+
+# Local Deno type-check cache
+deno.lock

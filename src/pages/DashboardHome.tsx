@@ -4,6 +4,11 @@ import { Package, MessageSquare, Activity, TrendingUp, Upload, Settings, ArrowRi
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
+import OnboardingChecklist from "@/components/OnboardingChecklist";
+import { onboardingSteps, nextStep, type OnboardingState } from "@/lib/onboarding";
+import { loadOnboarding, shopperConversations } from "@/lib/onboarding-data";
+import { indexProducts } from "@/lib/embed-products";
 
 const DashboardHome = () => {
   const { user } = useAuth();
@@ -14,6 +19,31 @@ const DashboardHome = () => {
   ]);
   const [loading, setLoading] = useState(true);
   const [displayValues, setDisplayValues] = useState([0, 0, 0]);
+  const [businessId, setBusinessId] = useState<string | null>(null);
+  const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
+  const [indexing, setIndexing] = useState(false);
+
+  const refreshOnboarding = async (id: string) => {
+    try {
+      setOnboarding(await loadOnboarding(id));
+    } catch (error) {
+      console.error("Failed to load setup checklist:", error);
+    }
+  };
+
+  const handleIndexNow = async () => {
+    if (!businessId) return;
+    setIndexing(true);
+    try {
+      const count = await indexProducts(businessId);
+      toast.success(count ? `Indexed ${count} product${count === 1 ? "" : "s"}.` : "All products are indexed.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Indexing failed.");
+    } finally {
+      setIndexing(false);
+      await refreshOnboarding(businessId);
+    }
+  };
 
   // Count-up animation
   useEffect(() => {
@@ -66,6 +96,8 @@ const DashboardHome = () => {
         }
 
         const businessId = business.id;
+        setBusinessId(businessId);
+        void refreshOnboarding(businessId);
 
         // Fetch total products
         const { count: productsCount } = await supabase
@@ -73,11 +105,8 @@ const DashboardHome = () => {
           .select("*", { count: "exact", head: true })
           .eq("business_id", businessId);
 
-        // Fetch total conversations
-        const { count: conversationsCount } = await supabase
-          .from("conversations")
-          .select("*", { count: "exact", head: true })
-          .eq("business_id", businessId);
+        // Shopper conversations (dashboard previews and test runs excluded)
+        const { count: conversationsCount } = await shopperConversations(businessId);
 
         // Fetch active sessions (conversations within last 24 hours)
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -85,6 +114,8 @@ const DashboardHome = () => {
           .from("conversations")
           .select("session_id")
           .eq("business_id", businessId)
+          .not("session_id", "like", "dash-%")
+          .not("session_id", "like", "e2e-test-%")
           .gte("created_at", twentyFourHoursAgo);
 
         const uniqueSessions = new Set(activeConversations?.map((c) => c.session_id) || []);
@@ -148,6 +179,14 @@ const DashboardHome = () => {
     <div className="page-fade-in">
       <h1 className="mb-2 text-4xl font-bold text-gradient-blue-purple">Dashboard</h1>
       <p className="mb-8 text-lg text-gray-400">Overview of your ShopMind AI store</p>
+
+      {onboarding && nextStep(onboardingSteps(onboarding)) && (
+        <OnboardingChecklist
+          steps={onboardingSteps(onboarding)}
+          onIndexNow={() => void handleIndexNow()}
+          indexing={indexing}
+        />
+      )}
 
       <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 mb-12">
         {stats.map((stat, index) => (
