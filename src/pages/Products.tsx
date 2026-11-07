@@ -19,6 +19,7 @@ import EmptyState from "@/components/EmptyState";
 import Papa from "papaparse";
 import { indexProducts } from "@/lib/embed-products";
 import { formatPrice } from "@/lib/utils";
+import { parseVariants, stockFromVariants, summarizeVariants } from "@/lib/variants";
 
 interface Product {
   id: string;
@@ -29,9 +30,10 @@ interface Product {
   description: string | null;
   image_url: string | null;
   promo: string | null;
+  variants: unknown;
 }
 
-const EXPECTED_COLS = ["name", "description", "price", "image_url", "category", "stock_status", "promo", "product_url", "sku"];
+const EXPECTED_COLS = ["name", "description", "price", "image_url", "category", "stock_status", "promo", "product_url", "sku", "variants"];
 
 // "৳1,299", "Tk 1299.50" or 1299 -> 1299; anything unparseable -> null.
 const parsePrice = (value: unknown): number | null => {
@@ -89,7 +91,7 @@ const Products = () => {
   const fetchProducts = useCallback(async (bizId: string) => {
     const { data, error } = await supabase
       .from("products")
-      .select("id, name, category, price, stock_status, description, image_url, promo")
+      .select("id, name, category, price, stock_status, description, image_url, promo, variants")
       .eq("business_id", bizId)
       .order("created_at", { ascending: false });
     if (!error && data) setProducts(data);
@@ -128,15 +130,25 @@ const Products = () => {
 
   const insertProducts = async (rows: Record<string, unknown>[]) => {
     if (!businessId) return;
+    const parsed = rows.map((r) => parseVariants(r.variants));
+    const badRow = parsed.findIndex((p) => p.error);
+    if (badRow >= 0) {
+      toast.error(`Row ${badRow + 2} (${String(rows[badRow].name)}): ${parsed[badRow].error}. Nothing was uploaded.`);
+      return;
+    }
     setUploading(true);
-    const toInsert = rows.map((r) => ({
+    const toInsert = rows.map((r, i) => ({
       business_id: businessId,
       name: String(r.name),
       description: r.description ? String(r.description) : null,
       price: parsePrice(r.price),
       image_url: parseUrl(r.image_url),
       category: r.category ? String(r.category) : null,
-      stock_status: normalizeStockStatus(r.stock_status),
+      // Without a stock_status, a product with variants is in stock if any variant is.
+      stock_status: r.stock_status != null && String(r.stock_status).trim()
+        ? normalizeStockStatus(r.stock_status)
+        : stockFromVariants(parsed[i].variants) ?? "in_stock",
+      variants: parsed[i].variants,
       promo: r.promo ? String(r.promo) : null,
       product_url: parseUrl(r.product_url),
       sku: r.sku != null && String(r.sku).trim() ? String(r.sku).trim().slice(0, 100) : null,
@@ -302,7 +314,8 @@ const Products = () => {
       {!selectedFile && (
         <p className="text-xs text-muted-foreground -mt-2">
           Columns: <code>name</code> (required), <code>description</code>, <code>price</code>, <code>category</code>,{" "}
-          <code>stock_status</code>, <code>promo</code>, <code>image_url</code>, <code>product_url</code>, <code>sku</code>.{" "}
+          <code>stock_status</code>, <code>promo</code>, <code>image_url</code>, <code>product_url</code>, <code>sku</code>,{" "}
+          <code>variants</code> (e.g. <code>S, M, L:out</code> or <code>Black/M, Navy/L:out</code>).{" "}
           <a href="/sample-catalog.csv" download className="text-blue-400 underline-offset-2 hover:underline">
             Download a sample
           </a>
@@ -338,6 +351,7 @@ const Products = () => {
                     <TableHead className="text-xs uppercase text-muted-foreground font-semibold">Category</TableHead>
                     <TableHead className="text-xs uppercase text-muted-foreground font-semibold">Price</TableHead>
                     <TableHead className="text-xs uppercase text-muted-foreground font-semibold">Stock Status</TableHead>
+                    <TableHead className="text-xs uppercase text-muted-foreground font-semibold">Variants</TableHead>
                     <TableHead className="w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -366,6 +380,9 @@ const Products = () => {
                           <span className={`h-2 w-2 rounded-full mr-2 ${p.stock_status === "in_stock" ? "bg-green-400" : "bg-red-400"}`} />
                           {p.stock_status === "in_stock" ? "In Stock" : "Out of Stock"}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[220px] truncate" title={summarizeVariants(p.variants)}>
+                        {summarizeVariants(p.variants) || "—"}
                       </TableCell>
                       <TableCell>
                         <Button

@@ -5,6 +5,7 @@ import {
   type EmbeddableProduct,
   embedText,
 } from "../_shared/embedding.ts";
+import { indexPendingDocuments } from "../_shared/document-index.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -155,7 +156,20 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  return new Response(JSON.stringify({ embedded_count: embeddedCount }), {
+  // Store documents (FAQ, shipping, returns...) are indexed in the same call.
+  const docs = await indexPendingDocuments(supabase, geminiKey, businessId, 30);
+  if (docs.failed) {
+    return new Response(
+      JSON.stringify({
+        error: `Document indexing failed: ${docs.failed}`,
+        embedded_count: embeddedCount,
+        documents_indexed: docs.indexed,
+      }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  return new Response(JSON.stringify({ embedded_count: embeddedCount, documents_indexed: docs.indexed }), {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });

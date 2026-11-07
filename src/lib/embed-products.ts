@@ -5,6 +5,14 @@ import { supabase } from "@/integrations/supabase/client";
  * has no AI search embedding yet. Resolves with how many were indexed.
  */
 export async function indexProducts(businessId: string): Promise<number> {
+  return (await indexStore(businessId)).products;
+}
+
+/**
+ * Indexes everything new or edited in the store: products without an
+ * embedding and store documents (FAQ, shipping...) not yet searchable.
+ */
+export async function indexStore(businessId: string): Promise<{ products: number; documents: number }> {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
   if (!supabaseUrl || !anonKey) {
@@ -16,7 +24,7 @@ export async function indexProducts(businessId: string): Promise<number> {
   } = await supabase.auth.getSession();
   const token = session?.access_token;
   if (!token) {
-    throw new Error("No session; sign in again to index products.");
+    throw new Error("No session; sign in again to update the AI search.");
   }
 
   const res = await fetch(`${supabaseUrl}/functions/v1/embed-products`, {
@@ -29,7 +37,7 @@ export async function indexProducts(businessId: string): Promise<number> {
     body: JSON.stringify({ business_id: businessId }),
   });
 
-  let payload: { error?: string; embedded_count?: number } = {};
+  let payload: { error?: string; embedded_count?: number; documents_indexed?: number } = {};
   try {
     payload = await res.json();
   } catch {
@@ -40,8 +48,8 @@ export async function indexProducts(businessId: string): Promise<number> {
     throw new Error(
       typeof payload.error === "string" && payload.error
         ? payload.error
-        : `Indexing failed (${res.status}). Products were saved.`,
+        : `Indexing failed (${res.status}). Your changes were saved.`,
     );
   }
-  return payload.embedded_count ?? 0;
+  return { products: payload.embedded_count ?? 0, documents: payload.documents_indexed ?? 0 };
 }

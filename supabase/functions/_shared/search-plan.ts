@@ -1,4 +1,5 @@
 import { isFollowUp, parsePriceRange } from "./chat-utils.ts";
+import { findSize, normalizeVariants, sizeAvailability } from "./store-knowledge.ts";
 
 /**
  * Turns the shopper's latest message (plus a little conversation context)
@@ -81,6 +82,8 @@ export type SearchPlan = {
   minPrice: number | null;
   maxPrice: number | null;
   inStockOnly: boolean;
+  /** Size asked about ("M", "42"), from this message or the one it refines. */
+  size: string | null;
   /** Human-readable notes for the reply model. */
   notes: string[];
 };
@@ -139,8 +142,14 @@ export function buildSearchPlan(input: {
   const inStockOnly = IN_STOCK_RE.test(message);
   if (colour) notes.push(`The shopper wants the colour ${colour}; say honestly if no product in the catalog has it.`);
   if (inStockOnly) notes.push("The shopper only wants products that are in stock.");
+  const size = findSize(message) ?? (followUp ? findSize(previousUserMessage) : null);
+  if (size) {
+    notes.push(
+      `The shopper asks about size ${size}. Use each product's variants: say whether size ${size} is in stock, sold out, or not offered. If a product lists no variants, say you don't have size details for it.`,
+    );
+  }
 
-  return { searchText, followUp, categories, colour, minPrice, maxPrice, inStockOnly, notes };
+  return { searchText, followUp, categories, colour, minPrice, maxPrice, inStockOnly, size, notes };
 }
 
 export type Rankable = {
@@ -149,6 +158,7 @@ export type Rankable = {
   category: string | null;
   stock_status: string;
   similarity: number;
+  variants?: unknown;
 };
 
 /** Re-orders search results using the plan's soft filters. */
@@ -156,10 +166,16 @@ export function rerank<T extends Rankable>(products: T[], plan: SearchPlan): T[]
   const wanted = new Set(plan.categories.map((c) => c.toLowerCase()));
   const score = (p: T) => {
     let s = p.similarity;
+    const variants = normalizeVariants(p.variants);
     if (wanted.size && p.category) s += wanted.has(p.category.toLowerCase()) ? 0.25 : -0.1;
     if (plan.colour) {
-      const text = `${p.name} ${p.description ?? ""}`.toLowerCase();
+      const colours = variants.map((v) => v.colour ?? "").join(" ");
+      const text = `${p.name} ${p.description ?? ""} ${colours}`.toLowerCase();
       if (new RegExp(`\\b${plan.colour}\\b`).test(text)) s += 0.2;
+    }
+    if (plan.size && variants.length) {
+      const availability = sizeAvailability(variants, plan.size);
+      s += availability === "in_stock" ? 0.15 : availability === "out_of_stock" ? 0.05 : -0.05;
     }
     if (p.stock_status === "in_stock") s += 0.03;
     else if (plan.inStockOnly) s -= 0.5;

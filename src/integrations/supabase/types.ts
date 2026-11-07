@@ -136,6 +136,51 @@ export type Database = {
           },
         ]
       }
+      document_chunks: {
+        Row: {
+          business_id: string
+          chunk_index: number
+          content: string
+          document_id: string
+          embedding: string | null
+          fts: unknown
+          id: number
+        }
+        Insert: {
+          business_id: string
+          chunk_index: number
+          content: string
+          document_id: string
+          embedding?: string | null
+          fts?: unknown
+          id?: never
+        }
+        Update: {
+          business_id?: string
+          chunk_index?: number
+          content?: string
+          document_id?: string
+          embedding?: string | null
+          fts?: unknown
+          id?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_chunks_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_chunks_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "store_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           content: string
@@ -193,6 +238,7 @@ export type Database = {
           promo: string | null
           sku: string | null
           stock_status: string
+          variants: Json
         }
         Insert: {
           business_id: string
@@ -209,6 +255,7 @@ export type Database = {
           promo?: string | null
           sku?: string | null
           stock_status?: string
+          variants?: Json
         }
         Update: {
           business_id?: string
@@ -225,10 +272,52 @@ export type Database = {
           promo?: string | null
           sku?: string | null
           stock_status?: string
+          variants?: Json
         }
         Relationships: [
           {
             foreignKeyName: "products_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      store_documents: {
+        Row: {
+          business_id: string
+          content: string
+          created_at: string
+          id: string
+          indexed_at: string | null
+          kind: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          business_id: string
+          content: string
+          created_at?: string
+          id?: string
+          indexed_at?: string | null
+          kind?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          business_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          indexed_at?: string | null
+          kind?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "store_documents_business_id_fkey"
             columns: ["business_id"]
             isOneToOne: false
             referencedRelation: "businesses"
@@ -244,6 +333,23 @@ export type Database = {
       check_chat_rate_limit: {
         Args: { p_business_id: string; p_ip_hash: string; p_session_id: string }
         Returns: string
+      }
+      match_document_chunks: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          p_business_id: string
+          query_embedding: string
+          query_text?: string
+        }
+        Returns: {
+          content: string
+          document_id: string
+          id: number
+          kind: string
+          similarity: number
+          title: string
+        }[]
       }
       match_products: {
         Args: {
@@ -269,6 +375,7 @@ export type Database = {
           similarity: number
           sku: string
           stock_status: string
+          variants: Json
         }[]
       }
       store_analytics: {
