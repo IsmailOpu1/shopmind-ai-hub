@@ -48,6 +48,10 @@ const scenarios = [
   { name: "store size", turns: ["show me the oxford shirt", "Is size M in stock?"] },
   { name: "store city delivery", turns: ["How long does delivery to Chittagong take?"] },
   { name: "store size sold out", turns: ["do you have the cream linen shirt in size M?"] },
+  // cart awareness: the cart is sent with every turn, like the widget does
+  { name: "cart cross-sell", cart: [{ sku: "SHT-OXF-01", quantity: 1 }], turns: ["What goes well with the Oxford shirt?"] },
+  { name: "cart contents", cart: [{ sku: "SHT-OXF-01", quantity: 2 }, { sku: "ACC-BLT-01" }], turns: ["what's in my cart?"] },
+  { name: "cart no push", cart: [{ sku: "SHT-OXF-01" }], turns: ["do you have sunglasses?"] },
 ];
 
 const runId = Date.now().toString(36);
@@ -61,7 +65,7 @@ for (const [i, scenario] of scenarios.entries()) {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: ANON_KEY },
-      body: JSON.stringify({ message, business_id: BUSINESS_ID, session_id: sessionId }),
+      body: JSON.stringify({ message, business_id: BUSINESS_ID, session_id: sessionId, cart: scenario.cart }),
     });
     const data = await res.json().catch(() => ({}));
     const ms = Date.now() - started;

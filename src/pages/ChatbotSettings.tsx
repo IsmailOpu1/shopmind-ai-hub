@@ -344,6 +344,23 @@ const ChatbotSettings = () => {
                 <code className="bg-gray-800 px-1 py-0.5 rounded">data-enable-cart="true"</code> shows an Add to cart
                 button that fires a <code className="bg-gray-800 px-1 py-0.5 rounded">shopmind:add-to-cart</code> event.
               </p>
+
+              <div className="space-y-2 pt-2 border-t border-gray-800">
+                <p className="text-sm font-medium">Connect your cart (optional)</p>
+                <p className="text-xs text-muted-foreground">
+                  Tell the assistant what's in the shopper's cart so it can answer about it and suggest items that go
+                  with it. Call this whenever the cart changes, using the SKUs from your product list:
+                </p>
+                <pre className="bg-[#0d1117] rounded-lg p-3 overflow-x-auto text-xs font-mono text-gray-300 border border-gray-700">
+                  <code>{`ShopMind.setCart([
+  { sku: "SHT-OXF-01", quantity: 1 },
+]);`}</code>
+                </pre>
+                <p className="text-xs text-muted-foreground">
+                  Only SKUs and quantities are sent; names and prices come from your catalog. Items added with the
+                  widget's own Add to cart button are remembered automatically.
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>
