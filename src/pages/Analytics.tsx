@@ -36,9 +36,12 @@ const Analytics = () => {
       .select("id")
       .eq("owner_id", user.id)
       .maybeSingle()
-      .then(({ data: business }) => {
+      .then(({ data: business, error: lookupError }) => {
         if (business) setBusinessId(business.id);
-        else setLoading(false);
+        else {
+          if (lookupError) setError("Couldn't load your store. Please refresh the page.");
+          setLoading(false);
+        }
       });
   }, [user]);
 
@@ -155,7 +158,7 @@ export function AnalyticsView({ days, onDaysChange: setDays, data, loading, erro
           {Array.from({ length: 5 }, (_, i) => <div key={i} className="h-28 shimmer rounded-xl" />)}
         </div>
       ) : !hasStore ? (
-        <p className="text-gray-400">Set up your store first to see analytics.</p>
+        !error && <p className="text-gray-400">Set up your store first to see analytics.</p>
       ) : data && (
         <div className={loading ? "opacity-60 transition-opacity" : "transition-opacity"}>
           <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">

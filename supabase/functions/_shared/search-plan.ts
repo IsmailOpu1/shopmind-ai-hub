@@ -85,6 +85,26 @@ export type SearchPlan = {
   notes: string[];
 };
 
+/**
+ * Whether the message refines the previous request, and the text to search
+ * with. A short message that names a different kind of product ("any
+ * sunglasses?" after shoes) starts a new topic: it must not inherit the old
+ * budget, colour or search words.
+ */
+export function conversationContext(
+  message: string,
+  previousUserMessage: string,
+  storeCategories: string[],
+): { followUp: boolean; searchText: string } {
+  if (!previousUserMessage || !isFollowUp(message)) return { followUp: false, searchText: message };
+  const asked = matchCategories(message, storeCategories);
+  if (asked.length) {
+    const before = matchCategories(previousUserMessage, storeCategories);
+    if (!asked.some((c) => before.includes(c))) return { followUp: false, searchText: message };
+  }
+  return { followUp: true, searchText: `${previousUserMessage}\n${message}` };
+}
+
 export function buildSearchPlan(input: {
   message: string;
   previousUserMessage: string;
@@ -93,7 +113,7 @@ export function buildSearchPlan(input: {
   storeCategories: string[];
 }): SearchPlan {
   const { message, previousUserMessage, lastShownPrices, storeCategories } = input;
-  const followUp = previousUserMessage !== "" && isFollowUp(message);
+  const { followUp, searchText } = conversationContext(message, previousUserMessage, storeCategories);
   const notes: string[] = [];
 
   let categories = matchCategories(message, storeCategories);
@@ -120,7 +140,6 @@ export function buildSearchPlan(input: {
   if (colour) notes.push(`The shopper wants the colour ${colour}; say honestly if no product in the catalog has it.`);
   if (inStockOnly) notes.push("The shopper only wants products that are in stock.");
 
-  const searchText = followUp ? `${previousUserMessage}\n${message}` : message;
   return { searchText, followUp, categories, colour, minPrice, maxPrice, inStockOnly, notes };
 }
 

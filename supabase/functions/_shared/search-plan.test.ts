@@ -61,6 +61,30 @@ describe("buildSearchPlan", () => {
     expect(plan.categories).toEqual(["Footwear"]);
   });
 
+  it("starts a new topic when a short message names another product type", () => {
+    const plan = buildSearchPlan({
+      ...base,
+      message: "any sunglasses?",
+      previousUserMessage: "black shoes under 500 taka",
+    });
+    expect(plan).toMatchObject({
+      followUp: false,
+      categories: ["Accessories"],
+      colour: null,
+      maxPrice: null,
+      searchText: "any sunglasses?",
+    });
+  });
+
+  it("still treats a short message in the same category as a follow-up", () => {
+    const plan = buildSearchPlan({
+      ...base,
+      message: "any loafers?",
+      previousUserMessage: "shoes under 4000",
+    });
+    expect(plan).toMatchObject({ followUp: true, categories: ["Footwear"], maxPrice: 4000 });
+  });
+
   it("does not treat a new full question as a follow-up", () => {
     const plan = buildSearchPlan({
       ...base,

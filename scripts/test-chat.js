@@ -41,6 +41,7 @@ const scenarios = [
   { name: "rag colour follow-up", turns: ["do you have trousers?", "in green"] },
   { name: "rag cheaper follow-up", turns: ["do you have loafers?", "anything cheaper?"] },
   { name: "rag category + stock", turns: ["show me shoes that are in stock"] },
+  { name: "rag new topic", turns: ["shoes under 500 taka", "any sunglasses?"] },
 ];
 
 const runId = Date.now().toString(36);

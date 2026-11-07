@@ -2,9 +2,10 @@ import {
   createClient,
   type SupabaseClient,
 } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { createReplyExtractor, isFollowUp, isSmallTalk } from "../_shared/chat-utils.ts";
+import { createReplyExtractor, isSmallTalk } from "../_shared/chat-utils.ts";
 import {
   buildSearchPlan,
+  conversationContext,
   focusOnCategories,
   rerank,
   type SearchPlan,
@@ -58,6 +59,9 @@ const RATE_LIMIT_MESSAGES: Record<string, string> = {
   business_limit:
     "Our assistant is very busy right now. Please try again later.",
 };
+
+const BUSY_MESSAGE = "I'm getting a lot of questions right now. Please try again in a minute.";
+const GENERIC_ERROR = "Sorry, something went wrong. Please try again.";
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   BDT: "৳",
@@ -277,7 +281,9 @@ function callOpenRouter(keys: LlmKeys, stream: boolean, body: GenerateBody): Pro
       response_format: { type: "json_object" },
       stream,
     },
-    true,
+    // Free-model 429s are per-minute limits: a quick retry only burns more
+    // of the limit. The model list above already covers a busy model.
+    false,
   );
 }
 
@@ -321,20 +327,23 @@ function parseTurn(rawText: string): AssistantTurn {
   // Free models occasionally return nothing; treat it like a busy model so
   // the shopper is asked to try again rather than shown an error.
   if (!text) throw new ModelBusyError("model returned no text");
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(text) as Partial<AssistantTurn>;
-    const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
-    if (!reply) throw new Error("empty reply");
-    return {
-      reply,
-      product_refs: Array.isArray(parsed.product_refs)
-        ? parsed.product_refs.filter((r): r is string => typeof r === "string")
-        : [],
-    };
+    parsed = JSON.parse(text);
   } catch {
-    // Structured output failed; fall back to plain text without cards.
+    // Not JSON: the model answered in plain text; show it without cards.
     return { reply: text, product_refs: [] };
   }
+  const turn = (parsed ?? {}) as Partial<AssistantTurn>;
+  const reply = typeof turn.reply === "string" ? turn.reply.trim() : "";
+  // JSON without a reply (e.g. {"": ""}) must never reach the shopper.
+  if (!reply) throw new ModelBusyError(`model returned JSON without a reply: ${text.slice(0, 100)}`);
+  return {
+    reply,
+    product_refs: Array.isArray(turn.product_refs)
+      ? turn.product_refs.filter((r): r is string => typeof r === "string")
+      : [],
+  };
 }
 
 async function readReply(provider: Provider, res: Response): Promise<AssistantTurn> {
@@ -506,7 +515,8 @@ const TRACKABLE_EVENTS = new Set(["view_click", "cart_click"]);
 const MAX_EVENTS_PER_SESSION_HOUR = 200;
 
 // Records a shopper's click on a product card's "View product" or
-// "Add to cart" button. The product must belong to the store.
+// "Add to cart" button. The product must have been shown as a card in this
+// session, so made-up session ids can't inflate a store's click numbers.
 async function handleTrack(
   supabase: SupabaseClient,
   businessId: string,
@@ -519,14 +529,15 @@ async function handleTrack(
     return json({ error: "Invalid event" }, 400);
   }
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const [productResult, countResult] = await Promise.all([
-    supabase.from("products").select("id").eq("id", productId)
-      .eq("business_id", businessId).maybeSingle(),
+  const [shownResult, countResult] = await Promise.all([
+    supabase.from("chat_events").select("id").eq("business_id", businessId)
+      .eq("session_id", sessionId).eq("product_id", productId).eq("type", "card_shown")
+      .limit(1).maybeSingle(),
     supabase.from("chat_events").select("id", { count: "exact", head: true })
       .eq("business_id", businessId).eq("session_id", sessionId).gte("created_at", since),
   ]);
-  if (productResult.error) throw new Error(`track product: ${productResult.error.message}`);
-  if (!productResult.data) return json({ error: "Product not found" }, 404);
+  if (shownResult.error) throw new Error(`track card lookup: ${shownResult.error.message}`);
+  if (!shownResult.data) return json({ error: "Product was not shown in this chat" }, 404);
   if ((countResult.count ?? 0) >= MAX_EVENTS_PER_SESSION_HOUR) {
     return json({ error: "Too many events" }, 429);
   }
@@ -697,7 +708,10 @@ Deno.serve(async (req: Request) => {
         .from("messages")
         .select("role, content, product_ids")
         .eq("conversation_id", conversationResult.data.id)
+        // A turn's question and reply share one timestamp (same insert);
+        // "assistant" < "user", so newest-first puts each reply before its question.
         .order("created_at", { ascending: false })
+        .order("role", { ascending: true })
         .limit(HISTORY_TURNS);
       if (historyError) throw new Error(`load history: ${historyError.message}`);
       history = ((recent ?? []) as ChatMessage[]).reverse();
@@ -729,8 +743,7 @@ Deno.serve(async (req: Request) => {
     if (!smallTalk) {
       // The search text only depends on the conversation, so the embedding can
       // start while last turn's products load; the plan then adds their prices.
-      const followUp = isFollowUp(message) && previousUserMessage !== "";
-      const searchText = followUp ? `${previousUserMessage}\n${message}` : message;
+      const { searchText } = conversationContext(message, previousUserMessage, storeCategories);
 
       const [embedding, shownResult] = await Promise.all([
         embedQuery(geminiKey, searchText),
@@ -804,7 +817,10 @@ Deno.serve(async (req: Request) => {
           .eq("stock_status", "in_stock")
           .in("category", oosCategories)
           .limit(3);
-        if (plan.maxPrice !== null && !noBudgetMatch) altQuery = altQuery.lte("price", plan.maxPrice);
+        if (!noBudgetMatch) {
+          if (plan.maxPrice !== null) altQuery = altQuery.lte("price", plan.maxPrice);
+          if (plan.minPrice !== null) altQuery = altQuery.gte("price", plan.minPrice);
+        }
         const { data: alternatives } = await altQuery;
         for (const p of (alternatives ?? []) as Product[]) {
           addCandidate(p, "in-stock alternative in the same category");
@@ -936,7 +952,7 @@ Deno.serve(async (req: Request) => {
           await save(turn.reply, products, provider);
         } catch (e) {
           console.error("chat stream:", e instanceof Error ? e.message : String(e));
-          send({ type: "error", error: "Sorry, something went wrong. Please try again." });
+          send({ type: "error", error: e instanceof ModelBusyError ? BUSY_MESSAGE : GENERIC_ERROR });
         } finally {
           controller.close();
         }
@@ -952,14 +968,8 @@ Deno.serve(async (req: Request) => {
   } catch (e) {
     console.error("chat:", e instanceof Error ? e.message : String(e));
     if (e instanceof ModelBusyError) {
-      return json(
-        { error: "I'm getting a lot of questions right now. Please try again in a minute." },
-        503,
-      );
+      return json({ error: BUSY_MESSAGE }, 503);
     }
-    return json(
-      { error: "Sorry, something went wrong. Please try again." },
-      500,
-    );
+    return json({ error: GENERIC_ERROR }, 500);
   }
 });
