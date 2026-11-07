@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { Save, Bot, MessageCircle, Palette, Copy, CheckCircle2, Loader2, Code, Coins, PanelRight, ShoppingCart } from "lucide-react";
 import { CURRENCIES } from "@/lib/utils";
 import { type CartMode, validateCartTemplate } from "@/lib/cart";
+import { markOnboarding } from "@/lib/onboarding-data";
 import LoadingSpinner from "@/components/LoadingSpinner";
 
 const ChatbotSettings = () => {
@@ -104,6 +105,7 @@ const ChatbotSettings = () => {
       toast.error(error.message);
     } else {
       toast.success("Chatbot settings updated.");
+      if (businessId) void markOnboarding(businessId, "customized_at");
     }
     setSaving(false);
   };
@@ -120,6 +122,7 @@ const ChatbotSettings = () => {
   const handleCopy = async () => {
     await navigator.clipboard.writeText(embedCode);
     setCopied(true);
+    if (businessId) void markOnboarding(businessId, "embed_copied_at");
     setTimeout(() => setCopied(false), 2000);
   };
 

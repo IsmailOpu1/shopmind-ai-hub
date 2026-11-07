@@ -1,0 +1,9 @@
+name,description,price,category,stock_status,promo,image_url,product_url,sku
+Classic White Sneakers,"Clean, minimalist leather sneakers for everyday wear",2499,Footwear,in_stock,10% OFF,https://images.unsplash.com/photo-1549298916-b41d501d3772?w=600,https://example.com/products/white-sneakers,SNK-WHT-01
+Tan Leather Loafers,Hand-stitched leather loafers with a cushioned insole,3299,Footwear,in_stock,,https://images.unsplash.com/photo-1614252235316-8c857d38b5f4?w=600,https://example.com/products/tan-loafers,LOF-TAN-01
+Oxford Button-Down Shirt,Classic oxford weave shirt with button-down collar,1599,Shirts,in_stock,NEW,https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=600,https://example.com/products/oxford-shirt,SHT-OXF-01
+White Linen Trousers,Breathable linen trousers with a relaxed fit,2199,Trousers,out_of_stock,,https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?w=600,https://example.com/products/linen-trousers,TRS-LIN-01
+Forest Green Chinos,Slim-fit stretch cotton chinos,1899,Trousers,in_stock,15% OFF,https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?w=600,https://example.com/products/green-chinos,TRS-CHI-02
+Camel Wool Blazer,Italian wool-blend blazer with a modern cut,5999,Jackets,in_stock,,https://images.unsplash.com/photo-1593030761757-71fae45fa0e7?w=600,https://example.com/products/camel-blazer,JKT-BLZ-01
+Tortoise Sunglasses,Acetate frames with UV400 lenses,1499,Accessories,in_stock,10% OFF,https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=600,https://example.com/products/tortoise-sunglasses,ACC-SUN-01
+Leather Belt,Full-grain leather belt with a brushed metal buckle,999,Accessories,in_stock,,https://images.unsplash.com/photo-1624222247344-550fb60583dc?w=600,https://example.com/products/leather-belt,ACC-BLT-01

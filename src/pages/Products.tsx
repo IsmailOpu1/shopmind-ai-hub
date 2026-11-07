@@ -17,6 +17,7 @@ import { Upload, Trash2, FileSpreadsheet, X, Package, CheckCircle2, ArrowUpRight
 import LoadingSpinner from "@/components/LoadingSpinner";
 import EmptyState from "@/components/EmptyState";
 import Papa from "papaparse";
+import { indexProducts } from "@/lib/embed-products";
 import { formatPrice } from "@/lib/utils";
 
 interface Product {
@@ -125,45 +126,6 @@ const Products = () => {
     }).filter((r) => r.name && String(r.name).trim() !== "");
   };
 
-  const triggerEmbedProducts = async (bizId: string) => {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-    if (!supabaseUrl || !anonKey) {
-      throw new Error("Missing Supabase URL or anon key.");
-    }
-
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) {
-      throw new Error("No session; sign in again to generate embeddings.");
-    }
-
-    const res = await fetch(`${supabaseUrl}/functions/v1/embed-products`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        apikey: anonKey,
-      },
-      body: JSON.stringify({ business_id: bizId }),
-    });
-
-    let payload: { error?: string; embedded_count?: number } = {};
-    try {
-      payload = await res.json();
-    } catch {
-      /* non-JSON body */
-    }
-
-    if (!res.ok) {
-      const msg =
-        typeof payload.error === "string" && payload.error
-          ? payload.error
-          : `Embedding request failed (${res.status}). Products were saved.`;
-      throw new Error(msg);
-    }
-  };
-
   const insertProducts = async (rows: Record<string, unknown>[]) => {
     if (!businessId) return;
     setUploading(true);
@@ -191,7 +153,7 @@ const Products = () => {
 
     const embedToastId = toast.loading("Generating AI embeddings...");
     try {
-      await triggerEmbedProducts(businessId);
+      await indexProducts(businessId);
       toast.success("Products uploaded and AI ready!", { id: embedToastId });
     } catch (e) {
       const message =
@@ -340,7 +302,10 @@ const Products = () => {
       {!selectedFile && (
         <p className="text-xs text-muted-foreground -mt-2">
           Columns: <code>name</code> (required), <code>description</code>, <code>price</code>, <code>category</code>,{" "}
-          <code>stock_status</code>, <code>promo</code>, <code>image_url</code>, <code>product_url</code>, <code>sku</code>
+          <code>stock_status</code>, <code>promo</code>, <code>image_url</code>, <code>product_url</code>, <code>sku</code>.{" "}
+          <a href="/sample-catalog.csv" download className="text-blue-400 underline-offset-2 hover:underline">
+            Download a sample
+          </a>
         </p>
       )}
       {!selectedFile ? null : (

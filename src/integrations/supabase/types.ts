@@ -26,6 +26,7 @@ export type Database = {
           greeting: string
           id: string
           name: string
+          onboarding: Json
           owner_id: string
           primary_color: string | null
         }
@@ -40,6 +41,7 @@ export type Database = {
           greeting?: string
           id?: string
           name: string
+          onboarding?: Json
           owner_id: string
           primary_color?: string | null
         }
@@ -54,6 +56,7 @@ export type Database = {
           greeting?: string
           id?: string
           name?: string
+          onboarding?: Json
           owner_id?: string
           primary_color?: string | null
         }

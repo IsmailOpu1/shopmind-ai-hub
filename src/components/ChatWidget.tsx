@@ -7,6 +7,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { readChatStream } from "@/lib/chat-stream";
 import { buildCartUrl, type CartMode } from "@/lib/cart";
+import { DASHBOARD_SESSION_PREFIX } from "@/lib/onboarding";
+import { markOnboarding } from "@/lib/onboarding-data";
 import { toast } from "sonner";
 import ProductCard from "./ProductCard";
 
@@ -48,7 +50,9 @@ const ChatWidget = () => {
   const [typing, setTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(0);
-  const sessionIdRef = useRef(crypto.randomUUID());
+  // Prefixed so previews don't count as shopper chats in stats and onboarding.
+  const sessionIdRef = useRef(`${DASHBOARD_SESSION_PREFIX}${crypto.randomUUID()}`);
+  const testedMarkedRef = useRef(false);
   const isMobile = useIsMobile();
   
   // Draggable bubble state
@@ -177,6 +181,11 @@ const ChatWidget = () => {
           stream: true,
         }),
       });
+
+      if (res.ok && !testedMarkedRef.current) {
+        testedMarkedRef.current = true;
+        void markOnboarding(businessId, "tested_at");
+      }
 
       const isStream = (res.headers.get("content-type") ?? "").includes("text/event-stream");
       if (res.ok && isStream && res.body) {
