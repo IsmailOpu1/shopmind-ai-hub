@@ -145,6 +145,7 @@ export type Database = {
           model: string | null
           product_ids: string[]
           role: string
+          search_status: string | null
         }
         Insert: {
           content: string
@@ -154,6 +155,7 @@ export type Database = {
           model?: string | null
           product_ids?: string[]
           role: string
+          search_status?: string | null
         }
         Update: {
           content?: string
@@ -163,6 +165,7 @@ export type Database = {
           model?: string | null
           product_ids?: string[]
           role?: string
+          search_status?: string | null
         }
         Relationships: [
           {
@@ -267,6 +270,10 @@ export type Database = {
           sku: string
           stock_status: string
         }[]
+      }
+      store_analytics: {
+        Args: { p_business_id: string; p_days?: number; p_tz?: string }
+        Returns: Json
       }
     }
     Enums: {

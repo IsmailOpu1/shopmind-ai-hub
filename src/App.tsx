@@ -16,6 +16,7 @@ const DashboardLayout = lazy(() => import("@/components/DashboardLayout"));
 const DashboardHome = lazy(() => import("@/pages/DashboardHome"));
 const ChatbotSettings = lazy(() => import("@/pages/ChatbotSettings"));
 const Products = lazy(() => import("@/pages/Products"));
+const Analytics = lazy(() => import("@/pages/Analytics"));
 
 const PageFallback = () => (
   <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
@@ -49,6 +50,7 @@ const App = () => (
                   <Route index element={<DashboardHome />} />
                   <Route path="products" element={<Products />} />
                   <Route path="chatbot" element={<ChatbotSettings />} />
+                  <Route path="analytics" element={<Analytics />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />
               </Routes>

@@ -865,6 +865,14 @@ Deno.serve(async (req: Request) => {
           role: "user",
           content: message,
           product_ids: [],
+          // How the search went, for the analytics page's catalog gaps.
+          search_status: smallTalk
+            ? "skipped"
+            : noBudgetMatch
+            ? "no_budget_match"
+            : products.length
+            ? "matched"
+            : "no_match",
         },
         {
           conversation_id: conversation.id,
@@ -872,6 +880,7 @@ Deno.serve(async (req: Request) => {
           content: reply,
           product_ids: products.map((p) => p.id),
           model,
+          search_status: null,
         },
       ]);
       if (products.length) {
