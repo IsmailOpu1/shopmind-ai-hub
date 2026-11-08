@@ -3,6 +3,7 @@ import {
   createReplyExtractor,
   isFollowUp,
   isSmallTalk,
+  splitPlainReply,
   parsePriceRange,
 } from "./chat-utils";
 
@@ -71,5 +72,22 @@ describe("createReplyExtractor", () => {
 
   it("ignores text after the value ends", () => {
     expect(run(['{"reply":"done"', ', "reply2":"x"}'])).toEqual(["done", ""]);
+  });
+});
+
+describe("splitPlainReply", () => {
+  it("strips a product_refs trailer and keeps its refs", () => {
+    expect(splitPlainReply('The blazer is ৳5,999. Want to see it?\nproduct_refs: ["P1"]')).toEqual({
+      reply: "The blazer is ৳5,999. Want to see it?",
+      refs: ["P1"],
+    });
+    expect(splitPlainReply("Here you go, \"product_refs\": ['P2', 'P3']}")).toEqual({
+      reply: "Here you go",
+      refs: ["P2", "P3"],
+    });
+  });
+
+  it("leaves ordinary text alone", () => {
+    expect(splitPlainReply("  Hi! How can I help?  ")).toEqual({ reply: "Hi! How can I help?", refs: [] });
   });
 });

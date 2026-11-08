@@ -2,7 +2,7 @@ import {
   createClient,
   type SupabaseClient,
 } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { createReplyExtractor, isSmallTalk } from "../_shared/chat-utils.ts";
+import { createReplyExtractor, isSmallTalk, splitPlainReply } from "../_shared/chat-utils.ts";
 import {
   buildSearchPlan,
   conversationContext,
@@ -19,6 +19,7 @@ import {
 import { indexPendingDocuments } from "../_shared/document-index.ts";
 import { describeVariants, normalizeVariants } from "../_shared/store-knowledge.ts";
 import { cartTotal, normalizeCart, resolveCart, wantsCrossSell } from "../_shared/cart.ts";
+import { toneStyle } from "../_shared/tone.ts";
 
 // Supabase Edge Runtime: keeps background work alive after the response.
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -80,6 +81,7 @@ type Business = {
   name: string;
   bot_name: string;
   currency: string;
+  tone: string | null;
 };
 
 type Product = {
@@ -345,8 +347,11 @@ function parseTurn(rawText: string): AssistantTurn {
   try {
     parsed = JSON.parse(text);
   } catch {
-    // Not JSON: the model answered in plain text; show it without cards.
-    return { reply: text, product_refs: [] };
+    // Not JSON: the model answered in plain text. Show the text, minus any
+    // "product_refs: [...]" it tacked on, whose refs still become cards.
+    const plain = splitPlainReply(text);
+    if (!plain.reply) throw new ModelBusyError("model returned only product refs");
+    return { reply: plain.reply, product_refs: plain.refs };
   }
   const turn = (parsed ?? {}) as Partial<AssistantTurn>;
   const reply = typeof turn.reply === "string" ? turn.reply.trim() : "";
@@ -464,10 +469,11 @@ function buildSystemPrompt(
     );
   }
 
-  return `You are ${business.bot_name}, the shopping assistant for "${business.name}". You behave like a warm, knowledgeable shopkeeper who helps shoppers find the right product and buy it.
+  const tone = toneStyle(business.tone);
+  return `You are ${business.bot_name}, the shopping assistant for "${business.name}". You behave like ${tone.persona} who helps shoppers find the right product and buy it.
 
 STYLE
-- Friendly, confident and concise: 1-3 short sentences. No markdown, no lists, no emojis overload.
+- ${tone.style} No markdown, no lists.
 - Reply in the shopper's language (English, Bangla or Banglish).
 - Don't open every message with a greeting; only greet when the shopper greets you.
 - Prices use ${business.currency} (${CURRENCY_SYMBOLS[business.currency] ?? business.currency}).
@@ -538,7 +544,7 @@ async function handleConfig(
   const { data, error } = await supabase
     .from("businesses")
     .select(
-      "name, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template",
+      "name, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template, avatar_url",
     )
     .eq("id", businessId)
     .maybeSingle();
@@ -705,7 +711,7 @@ Deno.serve(async (req: Request) => {
       }),
       supabase
         .from("businesses")
-        .select("name, bot_name, currency")
+        .select("name, bot_name, currency, tone")
         .eq("id", businessId)
         .maybeSingle(),
       supabase

@@ -110,3 +110,21 @@ export function createReplyExtractor(field = "reply") {
     return out;
   };
 }
+
+// Some models ignore the JSON format and answer in plain text, sometimes with
+// the card list tacked on the end ("...Want to see it?\nproduct_refs: ["P1"]").
+// That trailer must never reach the shopper; its refs are still usable.
+const TRAILING_REFS_RE = /[\s,]*["']?product_refs["']?\s*[:=]\s*(\[[^\]]*\])\s*\}?\s*$/i;
+
+export function splitPlainReply(text: string): { reply: string; refs: string[] } {
+  const match = text.match(TRAILING_REFS_RE);
+  if (!match) return { reply: text.trim(), refs: [] };
+  let refs: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(match[1].replace(/'/g, '"'));
+    if (Array.isArray(parsed)) refs = parsed.filter((r): r is string => typeof r === "string");
+  } catch {
+    // An unreadable list only loses the cards.
+  }
+  return { reply: text.slice(0, match.index).trim(), refs };
+}

@@ -37,6 +37,7 @@
     cart_mode:
       attr("data-cart-mode") || (attr("data-enable-cart") === "true" ? "event" : "off"),
     cart_url_template: attr("data-cart-url"),
+    avatar_url: attr("data-avatar"),
   };
   var overridden = {
     bot_name: !!attr("data-bot-name"),
@@ -46,6 +47,7 @@
     currency: !!attr("data-currency"),
     cart_mode: !!(attr("data-cart-mode") || attr("data-enable-cart")),
     cart_url_template: !!attr("data-cart-url"),
+    avatar_url: !!attr("data-avatar"),
   };
   var proactiveAttr = attr("data-proactive-delay");
   var proactiveDelay = proactiveAttr === "off" ? 0 : Number(proactiveAttr || 30);
@@ -137,6 +139,11 @@
     "#" + NS + " .sm-card-btn-primary{background:var(--sm-primary);color:#fff;}" +
     "#" + NS + " .sm-chip{font:inherit;font-size:13px;padding:7px 12px;border-radius:16px;border:1px solid var(--sm-primary);color:var(--sm-primary);background:#fff;cursor:pointer;text-align:left;max-width:85%;}" +
     "#" + NS + " .sm-chip:hover{background:var(--sm-primary);color:#fff;}" +
+    "#" + NS + " .sm-avatar{flex-shrink:0;width:26px;height:26px;border-radius:50%;overflow:hidden;background:var(--sm-primary);color:#fff;display:flex;align-items:center;justify-content:center;font:600 12px/1 system-ui,-apple-system,sans-serif;}" +
+    "#" + NS + " .sm-avatar img{width:100%;height:100%;object-fit:cover;display:block;}" +
+    "#" + NS + " .sm-header-id{display:flex;align-items:center;gap:10px;}" +
+    "#" + NS + " .sm-header-id .sm-avatar{width:36px;height:36px;font-size:15px;}" +
+    "#" + NS + " .sm-row-asst .sm-avatar{margin:0 8px 0 0;align-self:flex-end;}" +
     "#" + NS + " .sm-powered{font-size:10px;color:#9ca3af;text-align:center;padding:0 0 8px;background:#fff;}" +
     "#" +
     NS +
@@ -264,6 +271,15 @@
     if (config.fab_position === "bottom-left") root.classList.add("sm-left");
     else root.classList.remove("sm-left");
     if (titleEl) titleEl.textContent = config.bot_name;
+    var headerAvatar = root.querySelector(".sm-header-id .sm-avatar");
+    if (headerAvatar) headerAvatar.innerHTML = avatarHtml();
+  }
+
+  // The store's logo (from Chatbot Settings), or the bot name's first letter.
+  function avatarHtml() {
+    var url = safeUrl(config.avatar_url);
+    if (url) return '<img src="' + esc(url) + '" alt="" />';
+    return esc((String(config.bot_name || "S").trim().charAt(0) || "S").toUpperCase());
   }
 
   var iconSvg =
@@ -275,9 +291,12 @@
     '<span>Go AI</span></button>' +
     '<div class="sm-panel" role="dialog" aria-modal="true" aria-label="Chat">' +
     '<div class="sm-header">' +
+    '<div class="sm-header-id">' +
+    '<span class="sm-avatar" aria-hidden="true"></span>' +
     "<div>" +
     '<p class="sm-header-title"></p>' +
     '<p class="sm-header-sub"><span style="color:#22c55e">●</span> Online</p>' +
+    "</div>" +
     "</div>" +
     '<button type="button" class="sm-close" aria-label="Close chat">×</button>' +
     "</div>" +
@@ -517,6 +536,7 @@
         '<div class="sm-row ' +
         rowClass +
         '">' +
+        (m.role === "user" ? "" : '<span class="sm-avatar" aria-hidden="true">' + avatarHtml() + "</span>") +
         '<div class="sm-bubble ' +
         bubClass +
         '" data-sm-msg="' +
@@ -536,7 +556,8 @@
     }
     if (typing) {
       html +=
-        '<div class="sm-row sm-row-asst"><div class="sm-bubble sm-bubble-asst"><div class="sm-typing">' +
+        '<div class="sm-row sm-row-asst"><span class="sm-avatar" aria-hidden="true">' + avatarHtml() + "</span>" +
+        '<div class="sm-bubble sm-bubble-asst"><div class="sm-typing">' +
         '<span class="sm-dot"></span><span class="sm-dot"></span><span class="sm-dot"></span>' +
         "</div></div></div>";
     }
@@ -635,6 +656,7 @@
 
   // Proactive nudge after the shopper lingers (PRD: 30s on a page).
   var nudgeEl = null;
+  var nudgeDismissed = false;
   function hideNudge() {
     if (nudgeEl && nudgeEl.parentNode) nudgeEl.parentNode.removeChild(nudgeEl);
     nudgeEl = null;
@@ -654,8 +676,8 @@
       /* storage blocked */
     }
     if (!engaged) {
-      setTimeout(function () {
-        if (panel.classList.contains("sm-open") || messages.length > 0) return;
+      var showNudge = function () {
+        if (nudgeEl || nudgeDismissed || panel.classList.contains("sm-open") || messages.length > 0) return;
         var text = nudgeText();
         nudgeEl = document.createElement("div");
         nudgeEl.className = "sm-nudge";
@@ -666,12 +688,24 @@
             e.stopPropagation();
             hideNudge();
             markEngaged();
+            nudgeDismissed = true;
             return;
           }
           openPanel(text);
         });
         root.appendChild(nudgeEl);
-      }, proactiveDelay * 1000);
+      };
+      setTimeout(showNudge, proactiveDelay * 1000);
+      // Hover trigger (mouse only): resting on the chat button shows the
+      // prompt now. A quick pass over it doesn't.
+      var hoverTimer = null;
+      fab.addEventListener("mouseenter", function () {
+        if (window.matchMedia && !window.matchMedia("(hover: hover)").matches) return;
+        hoverTimer = setTimeout(showNudge, 600);
+      });
+      fab.addEventListener("mouseleave", function () {
+        clearTimeout(hoverTimer);
+      });
     }
   }
 
