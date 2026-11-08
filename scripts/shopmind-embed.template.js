@@ -6,6 +6,9 @@
 (function () {
   "use strict";
 
+  // Loaded twice (e.g. pasted in a theme and added by the npm package): keep one.
+  if (window.ShopMind && window.ShopMind.loaded) return;
+
   var script = document.currentScript;
   if (!script) {
     var candidates = document.querySelectorAll("script[src*='embed.js']");
@@ -535,6 +538,13 @@
     cart = [];
   }
   var api = (window.ShopMind = window.ShopMind || {});
+  api.loaded = true;
+  // Removes the chat from the page (used by the npm package when a page unmounts).
+  api.destroy = function () {
+    if (root.parentNode) root.parentNode.removeChild(root);
+    if (styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
+    api.loaded = false;
+  };
   if (Array.isArray(api.cart)) setCart(api.cart); // set before the script loaded
   api.setCart = setCart;
   api.getCart = function () {

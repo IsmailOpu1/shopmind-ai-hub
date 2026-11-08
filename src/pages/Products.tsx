@@ -20,6 +20,8 @@ import Papa from "papaparse";
 import { indexProducts } from "@/lib/embed-products";
 import { formatPrice } from "@/lib/utils";
 import { parseVariants, stockFromVariants, summarizeVariants } from "@/lib/variants";
+import StoreConnect, { type CatalogConnection } from "@/components/catalog/StoreConnect";
+import { PLATFORM_NAMES, type Platform } from "@/lib/catalog";
 
 interface Product {
   id: string;
@@ -31,6 +33,7 @@ interface Product {
   image_url: string | null;
   promo: string | null;
   variants: unknown;
+  source: string;
 }
 
 const EXPECTED_COLS = ["name", "description", "price", "image_url", "category", "stock_status", "promo", "product_url", "sku", "variants"];
@@ -87,33 +90,62 @@ const Products = () => {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<{ name: string; size: string } | null>(null);
+  const [connection, setConnection] = useState<CatalogConnection>({
+    platform: null,
+    url: null,
+    syncedAt: null,
+    error: null,
+    count: null,
+  });
 
   const fetchProducts = useCallback(async (bizId: string) => {
     const { data, error } = await supabase
       .from("products")
-      .select("id, name, category, price, stock_status, description, image_url, promo, variants")
+      .select("id, name, category, price, stock_status, description, image_url, promo, variants, source")
       .eq("business_id", bizId)
       .order("created_at", { ascending: false });
     if (!error && data) setProducts(data);
   }, []);
 
+  const loadStore = useCallback(async (ownerId: string) => {
+    const { data } = await supabase
+      .from("businesses")
+      .select("id, currency, catalog_platform, catalog_url, catalog_synced_at, catalog_sync_error, catalog_product_count")
+      .eq("owner_id", ownerId)
+      .maybeSingle();
+    if (data) {
+      setBusinessId(data.id);
+      setCurrency(data.currency);
+      setConnection({
+        platform: data.catalog_platform === "shopify" || data.catalog_platform === "woocommerce" ? data.catalog_platform : null,
+        url: data.catalog_url,
+        syncedAt: data.catalog_synced_at,
+        error: data.catalog_sync_error,
+        count: data.catalog_product_count,
+      });
+      await fetchProducts(data.id);
+    }
+    return data?.id ?? null;
+  }, [fetchProducts]);
+
   useEffect(() => {
     if (!user) return;
-    const init = async () => {
-      const { data } = await supabase
-        .from("businesses")
-        .select("id, currency")
-        .eq("owner_id", user.id)
-        .maybeSingle();
-      if (data) {
-        setBusinessId(data.id);
-        setCurrency(data.currency);
-        await fetchProducts(data.id);
-      }
-      setLoading(false);
-    };
-    init();
-  }, [user, fetchProducts]);
+    void loadStore(user.id).finally(() => setLoading(false));
+  }, [user, loadStore]);
+
+  // After a connect or sync: refresh the list, then build the AI search for new products.
+  const onCatalogChanged = async () => {
+    if (!user) return;
+    const id = await loadStore(user.id);
+    if (!id) return;
+    const toastId = toast.loading("Getting new products ready for the assistant...");
+    try {
+      const n = await indexProducts(id);
+      toast.success(n ? `${n} product${n === 1 ? "" : "s"} ready for the assistant.` : "Products are ready.", { id: toastId });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Indexing failed. It will finish in the background.", { id: toastId });
+    }
+  };
 
   const normalizeRows = (raw: Record<string, unknown>[]): Record<string, unknown>[] => {
     return raw.map((row) => {
@@ -280,6 +312,12 @@ const Products = () => {
         </div>
       </div>
 
+      <StoreConnect connection={connection} currency={currency} onChanged={() => void onCatalogChanged()} />
+
+      {!connection.platform && (
+        <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-500">Or upload a spreadsheet</p>
+      )}
+
       {/* Upload zone */}
       {!selectedFile ? (
         <div
@@ -358,7 +396,14 @@ const Products = () => {
                 <TableBody>
                   {products.map((p) => (
                     <TableRow key={p.id} className="products-table-row border-border/50">
-                      <TableCell className="products-name whitespace-nowrap">{p.name}</TableCell>
+                      <TableCell className="products-name whitespace-nowrap">
+                        {p.name}
+                        {p.source in PLATFORM_NAMES && (
+                          <Badge variant="outline" className="ml-2 border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0 text-[10px] text-emerald-300">
+                            {PLATFORM_NAMES[p.source as Platform]}
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell>
                         {p.category && (
                           <Badge 
@@ -413,10 +458,10 @@ const Products = () => {
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">No products yet</h2>
           <p className="text-muted-foreground text-center max-w-md">
-            Upload a CSV or XLSX file to get started
+            Connect your Shopify or WooCommerce store above, or upload a CSV or XLSX file
           </p>
           <div className="mt-6 text-muted-foreground text-sm">
-            <span className="text-blue-400">↑</span> Use the upload zone above
+            <span className="text-blue-400">↑</span> Start above
           </div>
         </div>
       )}

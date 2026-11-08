@@ -24,6 +24,12 @@ export type Database = {
           shopper_memory: boolean
           widget_seen_at: string | null
           widget_seen_origin: string | null
+          catalog_platform: string | null
+          catalog_url: string | null
+          catalog_synced_at: string | null
+          catalog_sync_started_at: string | null
+          catalog_sync_error: string | null
+          catalog_product_count: number | null
           created_at: string
           currency: string
           daily_message_limit: number
@@ -44,6 +50,12 @@ export type Database = {
           shopper_memory?: boolean
           widget_seen_at?: string | null
           widget_seen_origin?: string | null
+          catalog_platform?: string | null
+          catalog_url?: string | null
+          catalog_synced_at?: string | null
+          catalog_sync_started_at?: string | null
+          catalog_sync_error?: string | null
+          catalog_product_count?: number | null
           created_at?: string
           currency?: string
           daily_message_limit?: number
@@ -64,6 +76,12 @@ export type Database = {
           shopper_memory?: boolean
           widget_seen_at?: string | null
           widget_seen_origin?: string | null
+          catalog_platform?: string | null
+          catalog_url?: string | null
+          catalog_synced_at?: string | null
+          catalog_sync_started_at?: string | null
+          catalog_sync_error?: string | null
+          catalog_product_count?: number | null
           created_at?: string
           currency?: string
           daily_message_limit?: number
@@ -266,6 +284,8 @@ export type Database = {
           sku: string | null
           stock_status: string
           variants: Json
+          source: string
+          external_id: string | null
         }
         Insert: {
           business_id: string
@@ -283,6 +303,8 @@ export type Database = {
           sku?: string | null
           stock_status?: string
           variants?: Json
+          source?: string
+          external_id?: string | null
         }
         Update: {
           business_id?: string
@@ -300,6 +322,8 @@ export type Database = {
           sku?: string | null
           stock_status?: string
           variants?: Json
+          source?: string
+          external_id?: string | null
         }
         Relationships: [
           {
