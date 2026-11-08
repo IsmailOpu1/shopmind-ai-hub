@@ -21,6 +21,7 @@ export type Database = {
           cart_url_template: string | null
           avatar_url: string | null
           tone: string
+          shopper_memory: boolean
           created_at: string
           currency: string
           daily_message_limit: number
@@ -38,6 +39,7 @@ export type Database = {
           cart_url_template?: string | null
           avatar_url?: string | null
           tone?: string
+          shopper_memory?: boolean
           created_at?: string
           currency?: string
           daily_message_limit?: number
@@ -55,6 +57,7 @@ export type Database = {
           cart_url_template?: string | null
           avatar_url?: string | null
           tone?: string
+          shopper_memory?: boolean
           created_at?: string
           currency?: string
           daily_message_limit?: number
@@ -120,6 +123,7 @@ export type Database = {
           id: string
           ip_hash: string | null
           session_id: string
+          visitor_id: string | null
         }
         Insert: {
           business_id: string
@@ -130,6 +134,7 @@ export type Database = {
           id?: string
           ip_hash?: string | null
           session_id: string
+          visitor_id?: string | null
         }
         Update: {
           business_id?: string
@@ -140,6 +145,7 @@ export type Database = {
           id?: string
           ip_hash?: string | null
           session_id?: string
+          visitor_id?: string | null
         }
         Relationships: [
           {
@@ -292,6 +298,47 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "products_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopper_profiles: {
+        Row: {
+          business_id: string
+          created_at: string
+          facts: string[]
+          id: string
+          last_seen: string
+          product_ids: string[]
+          visitor_id: string
+          visits: number
+        }
+        Insert: {
+          business_id: string
+          created_at?: string
+          facts?: string[]
+          id?: string
+          last_seen?: string
+          product_ids?: string[]
+          visitor_id: string
+          visits?: number
+        }
+        Update: {
+          business_id?: string
+          created_at?: string
+          facts?: string[]
+          id?: string
+          last_seen?: string
+          product_ids?: string[]
+          visitor_id?: string
+          visits?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopper_profiles_business_id_fkey"
             columns: ["business_id"]
             isOneToOne: false
             referencedRelation: "businesses"

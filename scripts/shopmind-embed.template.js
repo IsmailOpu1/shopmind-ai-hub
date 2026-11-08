@@ -94,6 +94,25 @@
     }
   }
 
+  // One anonymous id per browser and store (kept across visits), so the bot
+  // can remember a returning shopper's preferences. "Forget me" replaces it.
+  var visitorKey = "shopmind_visitor_" + businessId;
+  var visitorId = null;
+  try {
+    visitorId = window.localStorage.getItem(visitorKey);
+  } catch (e) {
+    /* storage blocked: no memory across visits */
+  }
+  function newVisitor() {
+    visitorId = newSessionId();
+    try {
+      window.localStorage.setItem(visitorKey, visitorId);
+    } catch (e) {
+      /* storage blocked */
+    }
+  }
+  if (!visitorId || !/^[A-Za-z0-9_-]{8,100}$/.test(visitorId)) newVisitor();
+
   var base = String(SM_SUPABASE_URL).replace(/\/+$/, "");
   var chatUrl = base + "/functions/v1/chat";
 
@@ -929,6 +948,7 @@
           message: text,
           business_id: businessId,
           session_id: sessionId,
+          visitor_id: visitorId,
           stream: true,
           page: { title: document.title || "", url: location.origin + location.pathname },
           cart: cart,
@@ -964,6 +984,7 @@
         else messages.push({ id: ++msgId, role: "note", content: "Sent to the team." });
         startHandoff();
       } else {
+        if (data.forgotten === true) newVisitor();
         pushReply(data);
       }
     } catch (e) {
