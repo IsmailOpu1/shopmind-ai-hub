@@ -13,6 +13,19 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const SIGN_OUT_TIMEOUT_MS = 4000;
+
+/** Removes Supabase's saved session from this browser. */
+function clearStoredSession() {
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (/^sb-.+-auth-token$/.test(key)) localStorage.removeItem(key);
+    }
+  } catch {
+    /* storage blocked */
+  }
+}
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -53,9 +66,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (error) throw error;
   };
 
+  // Logging out must always work on this device, even if the server call
+  // fails or stalls (e.g. an expired session or a stuck token refresh).
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    const timedOut = new Promise<{ error: Error }>((resolve) =>
+      setTimeout(() => resolve({ error: new Error("sign-out timed out") }), SIGN_OUT_TIMEOUT_MS)
+    );
+    try {
+      const { error } = await Promise.race([supabase.auth.signOut({ scope: "local" }), timedOut]);
+      if (error) console.warn("Sign-out request failed; clearing the session locally:", error.message);
+    } catch (e) {
+      console.warn("Sign-out request failed; clearing the session locally:", e);
+    } finally {
+      clearStoredSession();
+      setSession(null);
+      setUser(null);
+    }
   };
 
   return (

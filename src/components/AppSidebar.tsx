@@ -1,139 +1,125 @@
-import { Home, LayoutGrid, Settings, LogOut, Brain, User, BarChart3, BookOpen, Inbox } from "lucide-react";
-import { NavLink } from "@/components/NavLink";
-import { useLocation, useNavigate } from "react-router-dom";
+import { LogOut } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
-import { useEffect, useState } from "react";
+import BrandMark from "@/components/BrandMark";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
+  SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
-import { countWaiting } from "@/lib/inbox";
+import { useLogout } from "@/hooks/useLogout";
+import { NAV_GROUPS, navItemFor } from "@/lib/nav";
 
-// How often the sidebar checks for chats waiting on the team.
-const WAITING_POLL_MS = 30000;
+type Props = { businessName: string; waiting: number };
 
-const navItems = [
-  { title: "Dashboard", url: "/dashboard", icon: Home },
-  { title: "Products", url: "/dashboard/products", icon: LayoutGrid },
-  { title: "Inbox", url: "/dashboard/inbox", icon: Inbox },
-  { title: "Store knowledge", url: "/dashboard/knowledge", icon: BookOpen },
-  { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3 },
-  { title: "Chatbot Settings", url: "/dashboard/chatbot", icon: Settings },
-];
-
-export function AppSidebar() {
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
+export function AppSidebar({ businessName, waiting }: Props) {
+  const { state, isMobile, setOpenMobile } = useSidebar();
+  const collapsed = state === "collapsed" && !isMobile;
   const location = useLocation();
-  const navigate = useNavigate();
-  const { signOut, user } = useAuth();
-  const [businessName, setBusinessName] = useState<string>("");
-  const [businessId, setBusinessId] = useState<string | null>(null);
-  const [waiting, setWaiting] = useState(0);
+  const { user } = useAuth();
+  const logout = useLogout();
+  const current = navItemFor(location.pathname);
 
-  useEffect(() => {
-    const fetchBusiness = async () => {
-      if (!user) return;
-      const { data } = await supabase
-        .from("businesses")
-        .select("id, name")
-        .eq("owner_id", user.id)
-        .maybeSingle();
-      if (data) {
-        setBusinessName(data.name);
-        setBusinessId(data.id);
-      }
-    };
-    fetchBusiness();
-  }, [user]);
-
-  // Chats waiting for the team, so the owner notices them from any page.
-  useEffect(() => {
-    if (!businessId) return;
-    const check = () => countWaiting(businessId).then(setWaiting, () => {});
-    check();
-    const timer = setInterval(check, WAITING_POLL_MS);
-    return () => clearInterval(timer);
-  }, [businessId, location.pathname]);
-
-  const handleLogout = async () => {
-    await signOut();
-    navigate("/login");
-  };
-
-  const businessInitial = businessName.charAt(0).toUpperCase();
+  const handleLogout = () => void logout();
 
   return (
-    <Sidebar collapsible="icon" className="sidebar-dark">
-      <SidebarContent>
-        <div className="flex items-center gap-2 px-4 py-5">
-          <Brain className="h-6 w-6 shrink-0 text-blue-400" />
-          {!collapsed && <span className="text-lg font-bold text-gradient-blue-purple">ShopMind AI</span>}
-        </div>
+    <Sidebar collapsible="icon" className="app-sidebar border-r border-white/[0.06]">
+      <SidebarHeader className={collapsed ? "pb-2 pl-3 pr-0 pt-4" : "px-3 pb-2 pt-4"}>
+        <Link
+          to="/dashboard"
+          aria-label="ShopMind AI home"
+          className={`flex items-center gap-2.5 rounded-xl py-1 ${collapsed ? "px-0" : "px-1"}`}
+          onClick={() => setOpenMobile(false)}
+        >
+          {/* Fits the 3rem collapsed rail (8px padding each side). */}
+          <BrandMark className={collapsed ? "h-8 w-8" : "h-9 w-9"} />
+          {!collapsed && <span className="text-base font-semibold tracking-tight text-white">ShopMind AI</span>}
+        </Link>
+      </SidebarHeader>
 
-        <div className="sidebar-divider mx-4" />
-
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-gray-400">Menu</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to={item.url}
-                      end={item.url === "/dashboard"}
-                      className="sidebar-nav-item text-gray-300 hover:text-white"
-                      activeClassName="sidebar-nav-item active text-white font-medium"
-                    >
-                      <item.icon className="mr-2 h-5 w-5" />
-                      {!collapsed && <span>{item.title}</span>}
-                      {item.url === "/dashboard/inbox" && waiting > 0 && (
-                        <span
-                          className="ml-auto rounded-full bg-amber-500 px-2 text-xs font-semibold text-black"
-                          aria-label={`${waiting} waiting`}
+      <SidebarContent className="px-1">
+        {NAV_GROUPS.map((group) => (
+          <SidebarGroup key={group.label} className="py-1.5">
+            <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+              {group.label}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => {
+                  const active = current?.url === item.url;
+                  const badge = item.url === "/dashboard/inbox" && waiting > 0 ? waiting : 0;
+                  return (
+                    <SidebarMenuItem key={item.url}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={active}
+                        tooltip={item.title}
+                        className="app-nav-item h-10 rounded-xl text-slate-400"
+                      >
+                        <Link to={item.url} aria-current={active ? "page" : undefined} onClick={() => setOpenMobile(false)}>
+                          <item.icon className="h-[18px] w-[18px]" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                      {badge > 0 && (
+                        <SidebarMenuBadge
+                          className="app-nav-badge right-2 top-2.5 rounded-full px-1.5 text-[11px] font-semibold"
+                          aria-label={`${badge} waiting`}
                         >
-                          {waiting}
-                        </span>
+                          {badge}
+                        </SidebarMenuBadge>
                       )}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
 
-      <SidebarFooter className="p-3 flex flex-col gap-2">
-        {!collapsed && (
-          <div className="flex items-center gap-3 px-2 py-2 mb-2">
-            <div className="h-8 w-8 rounded-full user-avatar flex items-center justify-center text-white font-semibold text-sm">
-              {businessInitial || "U"}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{businessName || "Loading..."}</p>
-            </div>
+      <SidebarFooter className="p-3">
+        <div className={`app-user-card flex items-center gap-3 rounded-2xl ${collapsed ? "justify-center p-1" : "p-2.5"}`}>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/80 to-violet-600/80 text-sm font-semibold text-white">
+            {(businessName.charAt(0) || "S").toUpperCase()}
           </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-white">{businessName || "Your store"}</p>
+              <p className="truncate text-xs text-slate-500">{user?.email}</p>
+            </div>
+          )}
+          {!collapsed && (
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-500/10 hover:text-red-400"
+              aria-label="Log out"
+              title="Log out"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        {collapsed && (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Log out" onClick={handleLogout} className="text-slate-400 hover:text-red-400">
+                <LogOut className="h-4 w-4" />
+                <span>Log out</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
         )}
-        <Button
-          variant="ghost"
-          className="w-full justify-start text-gray-400 hover:text-red-400 sidebar-logout transition-all duration-200"
-          onClick={handleLogout}
-        >
-          <LogOut className="mr-2 h-4 w-4" />
-          {!collapsed && <span>Logout</span>}
-        </Button>
       </SidebarFooter>
     </Sidebar>
   );

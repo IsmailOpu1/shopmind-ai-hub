@@ -35,6 +35,23 @@ interface Message {
 
 const DEFAULT_GREETING = "Hi! I'm your shopping assistant. What are you looking for today?";
 
+// The draggable chat bubble stays this far inside the visible window
+// (clientWidth excludes the scrollbar, unlike innerWidth).
+const BUBBLE_SIZE = 56;
+const BUBBLE_EDGE = 24;
+const viewportWidth = () => document.documentElement.clientWidth || window.innerWidth;
+const viewportHeight = () => document.documentElement.clientHeight || window.innerHeight;
+function clampBubble(x: number, y: number) {
+  // A hidden or not-yet-laid-out window reports 0x0; clamp once it has a size.
+  if (viewportWidth() === 0 || viewportHeight() === 0) return { x, y };
+  const maxX = Math.max(BUBBLE_EDGE, viewportWidth() - BUBBLE_SIZE - BUBBLE_EDGE);
+  const maxY = Math.max(BUBBLE_EDGE, viewportHeight() - BUBBLE_SIZE - BUBBLE_EDGE);
+  return {
+    x: Math.min(Math.max(x, BUBBLE_EDGE), maxX),
+    y: Math.min(Math.max(y, BUBBLE_EDGE), maxY),
+  };
+}
+
 const ChatWidget = () => {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -63,18 +80,15 @@ const ChatWidget = () => {
   const [dragDistance, setDragDistance] = useState(0);
   const bubbleRef = useRef<HTMLDivElement>(null);
 
-  // Load saved bubble position from localStorage
+  // Load the saved bubble position, kept inside the visible window.
   useEffect(() => {
-    const savedPosition = localStorage.getItem('chatBubblePosition');
-    if (savedPosition) {
-      try {
-        const { x, y } = JSON.parse(savedPosition);
-        setBubblePosition({ x, y });
-      } catch {
-        setBubblePosition({ x: window.innerWidth - 96, y: window.innerHeight - 128 });
-      }
-    } else {
-      setBubblePosition({ x: window.innerWidth - 96, y: window.innerHeight - 128 });
+    const fallback = { x: viewportWidth() - BUBBLE_SIZE - BUBBLE_EDGE, y: viewportHeight() - BUBBLE_SIZE - 72 };
+    try {
+      const saved = JSON.parse(localStorage.getItem('chatBubblePosition') ?? 'null');
+      const ok = saved && Number.isFinite(saved.x) && Number.isFinite(saved.y);
+      setBubblePosition(clampBubble(ok ? saved.x : fallback.x, ok ? saved.y : fallback.y));
+    } catch {
+      setBubblePosition(clampBubble(fallback.x, fallback.y));
     }
   }, []);
 
@@ -319,25 +333,16 @@ const ChatWidget = () => {
     const newX = bubbleStart.x + deltaX;
     const newY = bubbleStart.y + deltaY;
 
-    // Constrain to screen bounds
-    const maxX = window.innerWidth - 56;
-    const maxY = window.innerHeight - 56;
-    const constrainedX = Math.max(0, Math.min(newX, maxX));
-    const constrainedY = Math.max(0, Math.min(newY, maxY));
-
-    setBubblePosition({ x: constrainedX, y: constrainedY });
+    setBubblePosition(clampBubble(newX, newY));
   };
 
   const handleDragEnd = () => {
     setIsDragging(false);
     
-    // Snap to nearest edge
-    const screenWidth = window.innerWidth;
-    const midX = screenWidth / 2;
-    const isRight = bubblePosition.x > midX;
-    
-    const snappedX = isRight ? screenWidth - 56 : 0;
-    setBubblePosition({ x: snappedX, y: bubblePosition.y });
+    // Snap to the nearest side, clear of the edge and the scrollbar.
+    const isRight = bubblePosition.x > viewportWidth() / 2;
+    const snappedX = isRight ? viewportWidth() - BUBBLE_SIZE - BUBBLE_EDGE : BUBBLE_EDGE;
+    setBubblePosition(clampBubble(snappedX, bubblePosition.y));
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -460,8 +465,8 @@ const ChatWidget = () => {
   // Recalculate panel position on window resize
   useEffect(() => {
     const handleResize = () => {
-      // Force re-render to recalculate panel position
-      setBubblePosition(prev => ({ ...prev }));
+      // Keep the bubble on screen and recalculate the panel position.
+      setBubblePosition(prev => clampBubble(prev.x, prev.y));
     };
     
     window.addEventListener('resize', handleResize);

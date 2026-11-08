@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, loadEnv, type ResolvedConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
-import { componentTagger } from "lovable-tagger";
 
 /** Writes `public/embed.js` from template + .env (same values Vite uses for import.meta.env). */
 function shopmindEmbedPlugin() {
@@ -59,7 +58,6 @@ export default defineConfig(({ mode }) => ({
     shopmindEmbedPlugin(),
     mode === "production" && dropDevOnlyPages(),
     react(),
-    mode === "development" && componentTagger(),
   ].filter(Boolean),
   build: {
     rollupOptions: {

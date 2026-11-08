@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -19,6 +19,7 @@ const Products = lazy(() => import("@/pages/Products"));
 const Analytics = lazy(() => import("@/pages/Analytics"));
 const StoreKnowledge = lazy(() => import("@/pages/StoreKnowledge"));
 const Inbox = lazy(() => import("@/pages/Inbox"));
+const Landing = lazy(() => import("@/pages/Landing"));
 
 const PageFallback = () => (
   <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
@@ -38,7 +39,7 @@ const App = () => (
           <AuthProvider>
             <Suspense fallback={<PageFallback />}>
               <Routes>
-                <Route path="/" element={<Navigate to="/login" replace />} />
+                <Route path="/" element={<Landing />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/signup" element={<Signup />} />
                 <Route

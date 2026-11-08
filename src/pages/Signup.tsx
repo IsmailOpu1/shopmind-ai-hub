@@ -1,180 +1,119 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Brain, Zap, Globe, MessageSquare, TrendingUp } from "lucide-react";
-import { useEffect } from "react";
+import AuthShell from "@/components/auth/AuthShell";
+import PasswordInput from "@/components/auth/PasswordInput";
+
+const MIN_PASSWORD = 6;
 
 const Signup = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { signUp } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [featuresVisible, setFeaturesVisible] = useState(false);
-
-  useEffect(() => {
-    setFeaturesVisible(true);
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(null);
     try {
-      await signUp(email, password, businessName);
-      toast({ title: "Account created!", description: "Please check your email to verify your account." });
+      await signUp(email.trim(), password, businessName);
+      toast({ title: "Account created!", description: "Check your email to verify your account, then log in." });
       navigate("/login");
-    } catch (error: unknown) {
-      toast({ title: "Error", description: error instanceof Error ? error.message : "Something went wrong", variant: "destructive" });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const features = [
-    { icon: Zap, text: "RAG-powered product recommendations" },
-    { icon: Globe, text: "Embeddable on any website" },
-    { icon: MessageSquare, text: "Real-time customer conversations" },
-    { icon: TrendingUp, text: "Boost conversions automatically" },
-  ];
-
   return (
-    <div className="flex min-h-screen overflow-x-hidden">
-      {/* Left Side - 60% width */}
-      <div className="hidden lg:flex lg:w-[60%] relative overflow-hidden" style={{ backgroundColor: "#0A0F1E" }}>
-        {/* Grid pattern overlay */}
-        <div className="absolute inset-0 grid-pattern opacity-50" />
-
-        {/* Animated gradient mesh - more visible */}
-        <div className="absolute inset-0 opacity-50">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-900/70 via-purple-900/70 to-blue-900/70 animate-gradient-shift" />
+    <AuthShell title="Create your assistant" subtitle="Set up your store's AI sales assistant in minutes.">
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="space-y-2">
+          <Label htmlFor="businessName" className="text-slate-300">
+            Store name
+          </Label>
+          <Input
+            id="businessName"
+            autoComplete="organization"
+            placeholder="e.g. Dhaka Threads"
+            value={businessName}
+            onChange={(e) => setBusinessName(e.target.value)}
+            required
+            className="auth-input"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="email" className="text-slate-300">
+            Email
+          </Label>
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="auth-input"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="password" className="text-slate-300">
+            Password
+          </Label>
+          <PasswordInput
+            id="password"
+            autoComplete="new-password"
+            placeholder={`At least ${MIN_PASSWORD} characters`}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            minLength={MIN_PASSWORD}
+            aria-describedby="password-hint"
+            className="auth-input"
+          />
+          <p id="password-hint" className="text-xs text-slate-500">
+            Use at least {MIN_PASSWORD} characters. A longer passphrase is safer.
+          </p>
         </div>
 
-        {/* Floating dot particles drifting upward */}
-        <div className="absolute inset-0">
-          {[...Array(15)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute rounded-full bg-blue-400/30 animate-float-up"
-              style={{
-                width: Math.random() * 6 + 2 + "px",
-                height: Math.random() * 6 + 2 + "px",
-                left: Math.random() * 100 + "%",
-                animationDelay: Math.random() * 10 + "s",
-                animationDuration: Math.random() * 15 + 20 + "s",
-              }}
-            />
-          ))}
-        </div>
+        {error && (
+          <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+            {error}
+          </p>
+        )}
 
-        {/* Content */}
-        <div className="relative z-10 flex flex-col justify-between px-16 py-20 h-full">
-          {/* Bottom glowing orb */}
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 bottom-glow-orb" />
+        <Button type="submit" className="btn-glow h-11 w-full text-base" disabled={loading}>
+          {loading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating account...
+            </>
+          ) : (
+            <>
+              Create account <ArrowRight className="ml-2 h-4 w-4" />
+            </>
+          )}
+        </Button>
 
-          <div className="mb-8 relative">
-            <div className="flex items-center gap-4 mb-4">
-              <Brain className="h-12 w-12 text-blue-400" />
-              <h1 className="text-7xl font-bold text-gradient-blue-purple text-gradient-glow">ShopMind AI</h1>
-            </div>
-            <p className="text-2xl text-gray-300">The AI shopkeeper for your store</p>
-          </div>
-
-          <div className="space-y-4 my-12">
-            {features.map((feature, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-4 text-white/90 animate-fade-in feature-pill"
-                style={{
-                  animationDelay: `${index * 0.15}s`,
-                  opacity: featuresVisible ? 1 : 0,
-                  transform: featuresVisible ? "translateX(0)" : "translateX(-20px)",
-                }}
-              >
-                <feature.icon className="h-6 w-6" />
-                <span className="text-lg">{feature.text}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="pt-12">
-            <p className="text-sm text-gray-400">Trusted by smart store owners</p>
-          </div>
-        </div>
-
-        {/* Glowing vertical divider */}
-        <div className="absolute right-0 top-0 bottom-0 w-px divider-gradient" />
-      </div>
-
-      {/* Right Side - 40% width */}
-      <div className="w-full lg:w-[40%] flex items-center justify-center px-6 py-12 overflow-x-hidden" style={{ backgroundColor: "#111827" }}>
-        <div className="w-full max-w-md animate-fade-in rounded-2xl form-card-enhanced overflow-hidden">
-          <div className="mb-8">
-            <h2 className="text-4xl font-bold text-white mb-2">Get started</h2>
-            <p className="text-gray-400">Create your ShopMind AI account</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="businessName" className="text-gray-300">Business Name</Label>
-              <Input
-                id="businessName"
-                placeholder="Your business name"
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                required
-                className="input-enhanced text-white placeholder:text-gray-500"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-gray-300">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="input-enhanced text-white placeholder:text-gray-500"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-gray-300">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-                className="input-enhanced text-white placeholder:text-gray-500"
-              />
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full button-shimmer text-white font-medium"
-              disabled={loading}
-            >
-              {loading ? "Creating account..." : "Sign Up"}
-            </Button>
-
-            <p className="text-sm text-gray-400 text-center">
-              Already have an account?{" "}
-              <Link to="/login" className="text-blue-400 hover:text-blue-300 hover:underline transition-colors">
-                Log in
-              </Link>
-            </p>
-          </form>
-        </div>
-      </div>
-    </div>
+        <p className="text-center text-sm text-slate-400">
+          Already have an account?{" "}
+          <Link to="/login" className="font-medium text-blue-400 hover:text-blue-300">
+            Log in
+          </Link>
+        </p>
+      </form>
+    </AuthShell>
   );
 };
 
