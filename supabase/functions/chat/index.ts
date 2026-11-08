@@ -21,6 +21,7 @@ import { indexPendingDocuments } from "../_shared/document-index.ts";
 import { describeVariants, normalizeVariants } from "../_shared/store-knowledge.ts";
 import { cartTotal, normalizeCart, resolveCart, wantsCrossSell } from "../_shared/cart.ts";
 import { toneStyle } from "../_shared/tone.ts";
+import { normalizeOrigin, shouldRecordSighting } from "../_shared/install.ts";
 
 // Supabase Edge Runtime: keeps background work alive after the response.
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -565,6 +566,7 @@ function buildContents(history: ChatMessage[], message: string): GeminiContent[]
 // Public, non-secret widget settings for the embed script.
 async function handleConfig(
   url: URL,
+  req: Request,
   supabase: SupabaseClient,
 ): Promise<Response> {
   const businessId = url.searchParams.get("business_id") ?? "";
@@ -574,13 +576,30 @@ async function handleConfig(
   const { data, error } = await supabase
     .from("businesses")
     .select(
-      "name, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template, avatar_url",
+      "name, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template, avatar_url, widget_seen_at, widget_seen_origin",
     )
     .eq("id", businessId)
     .maybeSingle();
   if (error) throw new Error(`load config: ${error.message}`);
   if (!data) return json({ error: "Store not found" }, 404);
-  return new Response(JSON.stringify(data), {
+  const { widget_seen_at, widget_seen_origin, ...config } = data;
+
+  // The embed script marks its request (src=embed); the dashboard's own
+  // preview does not, so only real store websites count as installs.
+  const origin = url.searchParams.get("src") === "embed" ? normalizeOrigin(req.headers.get("origin")) : null;
+  if (origin && shouldRecordSighting({ origin: widget_seen_origin, seenAt: widget_seen_at }, origin, Date.now())) {
+    const write = Promise.resolve(supabase
+      .from("businesses")
+      .update({ widget_seen_at: new Date().toISOString(), widget_seen_origin: origin })
+      .eq("id", businessId)
+      .then(({ error }) => {
+        if (error) console.warn("chat: record widget sighting failed:", error.message);
+      }));
+    if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(write);
+    else await write;
+  }
+
+  return new Response(JSON.stringify(config), {
     status: 200,
     headers: {
       ...corsHeaders,
@@ -694,7 +713,7 @@ Deno.serve(async (req: Request) => {
     try {
       const url = new URL(req.url);
       if (url.searchParams.has("session_id")) return await handleHandoffPoll(url, supabase);
-      return await handleConfig(url, supabase);
+      return await handleConfig(url, req, supabase);
     } catch (e) {
       console.error("chat config:", e instanceof Error ? e.message : String(e));
       return json({ error: "Could not load settings" }, 500);

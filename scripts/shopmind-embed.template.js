@@ -617,7 +617,8 @@
 
   // Load the store's saved settings; attributes on the script tag win.
   if (SM_SUPABASE_URL && SM_ANON_KEY) {
-    fetch(chatUrl + "?business_id=" + encodeURIComponent(businessId), {
+    // src=embed lets the dashboard show the owner that the code is installed.
+    fetch(chatUrl + "?business_id=" + encodeURIComponent(businessId) + "&src=embed", {
       headers: { apikey: SM_ANON_KEY },
     })
       .then(function (r) {

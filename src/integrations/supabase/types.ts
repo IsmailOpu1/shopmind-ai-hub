@@ -22,6 +22,8 @@ export type Database = {
           avatar_url: string | null
           tone: string
           shopper_memory: boolean
+          widget_seen_at: string | null
+          widget_seen_origin: string | null
           created_at: string
           currency: string
           daily_message_limit: number
@@ -40,6 +42,8 @@ export type Database = {
           avatar_url?: string | null
           tone?: string
           shopper_memory?: boolean
+          widget_seen_at?: string | null
+          widget_seen_origin?: string | null
           created_at?: string
           currency?: string
           daily_message_limit?: number
@@ -58,6 +62,8 @@ export type Database = {
           avatar_url?: string | null
           tone?: string
           shopper_memory?: boolean
+          widget_seen_at?: string | null
+          widget_seen_origin?: string | null
           created_at?: string
           currency?: string
           daily_message_limit?: number

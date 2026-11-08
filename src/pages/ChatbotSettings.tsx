@@ -21,6 +21,8 @@ import { type CartMode, validateCartTemplate } from "@/lib/cart";
 import { markOnboarding } from "@/lib/onboarding-data";
 import { AVATAR_TYPES, TONE_OPTIONS, type ToneValue, avatarPathFromUrl, validateAvatar } from "@/lib/tone";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import InstallGuide from "@/components/install/InstallGuide";
+import InstallCheck from "@/components/install/InstallCheck";
 
 const ChatbotSettings = () => {
   const { user, loading: authLoading } = useAuth();
@@ -42,6 +44,7 @@ const ChatbotSettings = () => {
   const [uploading, setUploading] = useState(false);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [sighting, setSighting] = useState<{ seenAt: string | null; origin: string | null }>({ seenAt: null, origin: null });
 
   useEffect(() => {
     if (authLoading) return;
@@ -52,7 +55,7 @@ const ChatbotSettings = () => {
     const fetchSettings = async () => {
       const { data, error } = await supabase
         .from("businesses")
-        .select("id, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template, tone, avatar_url, shopper_memory")
+        .select("id, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template, tone, avatar_url, shopper_memory, widget_seen_at, widget_seen_origin")
         .eq("owner_id", user.id)
         .maybeSingle();
 
@@ -69,6 +72,7 @@ const ChatbotSettings = () => {
         setShopperMemory(data.shopper_memory !== false);
         setSavedAvatarUrl(data.avatar_url ?? null);
         setBusinessId(data.id);
+        setSighting({ seenAt: data.widget_seen_at ?? null, origin: data.widget_seen_origin ?? null });
       }
       setLoading(false);
     };
@@ -449,14 +453,14 @@ const ChatbotSettings = () => {
             <CardHeader className="border-b border-gray-800">
               <CardTitle className="text-lg flex items-center gap-2">
                 <Code className="h-5 w-5 text-blue-400" />
-                Embed on your website
+                Add the chat to your website
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-6 space-y-4">
+            <CardContent className="p-6 space-y-5">
               <p className="text-sm text-muted-foreground">
-                Copy this code and paste it before the closing &lt;/body&gt; tag on your website
+                No coding needed: copy this code, then follow the steps for your website builder.
               </p>
-              
+
               <div className="relative">
                 <pre className="bg-[#0d1117] rounded-lg p-4 overflow-x-auto text-xs font-mono text-gray-300 border border-gray-700">
                   <code>{embedCode}</code>
@@ -479,30 +483,49 @@ const ChatbotSettings = () => {
                 </Button>
               </div>
               
-              <p className="text-xs text-muted-foreground">
-                Changes you save here apply to the widget automatically. Optional attributes:{" "}
-                <code className="bg-gray-800 px-1 py-0.5 rounded">data-proactive-delay="off"</code> turns off the
-                30-second help prompt, and{" "}
-                <code className="bg-gray-800 px-1 py-0.5 rounded">data-enable-cart="true"</code> shows an Add to cart
-                button that fires a <code className="bg-gray-800 px-1 py-0.5 rounded">shopmind:add-to-cart</code> event.
-              </p>
+              <p className="text-xs text-muted-foreground">Changes you save on this page apply to the chat automatically.</p>
 
-              <div className="space-y-2 pt-2 border-t border-gray-800">
-                <p className="text-sm font-medium">Connect your cart (optional)</p>
-                <p className="text-xs text-muted-foreground">
-                  Tell the assistant what's in the shopper's cart so it can answer about it and suggest items that go
-                  with it. Call this whenever the cart changes, using the SKUs from your product list:
-                </p>
-                <pre className="bg-[#0d1117] rounded-lg p-3 overflow-x-auto text-xs font-mono text-gray-300 border border-gray-700">
-                  <code>{`ShopMind.setCart([
+              <div className="border-t border-gray-800 pt-4">
+                <InstallGuide snippet={embedCode} />
+              </div>
+
+              {businessId && (
+                <div className="border-t border-gray-800 pt-4">
+                  <InstallCheck businessId={businessId} initial={sighting} />
+                </div>
+              )}
+
+              <details className="group border-t border-gray-800 pt-4">
+                <summary className="cursor-pointer text-sm font-medium text-slate-300 hover:text-white">
+                  Advanced options (for developers)
+                </summary>
+                <div className="mt-3 space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Optional attributes:{" "}
+                    <code className="bg-gray-800 px-1 py-0.5 rounded">data-proactive-delay="off"</code> turns off the
+                    30-second help prompt, and{" "}
+                    <code className="bg-gray-800 px-1 py-0.5 rounded">data-enable-cart="true"</code> shows an Add to cart
+                    button that fires a <code className="bg-gray-800 px-1 py-0.5 rounded">shopmind:add-to-cart</code> event.
+                  </p>
+
+                  <div className="space-y-2 pt-2 border-t border-gray-800">
+                    <p className="text-sm font-medium">Connect your cart (optional)</p>
+                    <p className="text-xs text-muted-foreground">
+                      Tell the assistant what's in the shopper's cart so it can answer about it and suggest items that go
+                      with it. Call this whenever the cart changes, using the SKUs from your product list:
+                    </p>
+                    <pre className="bg-[#0d1117] rounded-lg p-3 overflow-x-auto text-xs font-mono text-gray-300 border border-gray-700">
+                      <code>{`ShopMind.setCart([
   { sku: "SHT-OXF-01", quantity: 1 },
 ]);`}</code>
-                </pre>
-                <p className="text-xs text-muted-foreground">
-                  Only SKUs and quantities are sent; names and prices come from your catalog. Items added with the
-                  widget's own Add to cart button are remembered automatically.
-                </p>
-              </div>
+                    </pre>
+                    <p className="text-xs text-muted-foreground">
+                      Only SKUs and quantities are sent; names and prices come from your catalog. Items added with the
+                      widget's own Add to cart button are remembered automatically.
+                    </p>
+                  </div>
+                </div>
+              </details>
             </CardContent>
           </Card>
         </div>
