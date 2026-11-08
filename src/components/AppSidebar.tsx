@@ -1,4 +1,4 @@
-import { Home, LayoutGrid, Settings, LogOut, Brain, User, BarChart3, BookOpen } from "lucide-react";
+import { Home, LayoutGrid, Settings, LogOut, Brain, User, BarChart3, BookOpen, Inbox } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -17,10 +17,15 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { countWaiting } from "@/lib/inbox";
+
+// How often the sidebar checks for chats waiting on the team.
+const WAITING_POLL_MS = 30000;
 
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: Home },
   { title: "Products", url: "/dashboard/products", icon: LayoutGrid },
+  { title: "Inbox", url: "/dashboard/inbox", icon: Inbox },
   { title: "Store knowledge", url: "/dashboard/knowledge", icon: BookOpen },
   { title: "Analytics", url: "/dashboard/analytics", icon: BarChart3 },
   { title: "Chatbot Settings", url: "/dashboard/chatbot", icon: Settings },
@@ -33,19 +38,33 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
   const [businessName, setBusinessName] = useState<string>("");
+  const [businessId, setBusinessId] = useState<string | null>(null);
+  const [waiting, setWaiting] = useState(0);
 
   useEffect(() => {
     const fetchBusiness = async () => {
       if (!user) return;
       const { data } = await supabase
         .from("businesses")
-        .select("name")
+        .select("id, name")
         .eq("owner_id", user.id)
         .maybeSingle();
-      if (data) setBusinessName(data.name);
+      if (data) {
+        setBusinessName(data.name);
+        setBusinessId(data.id);
+      }
     };
     fetchBusiness();
   }, [user]);
+
+  // Chats waiting for the team, so the owner notices them from any page.
+  useEffect(() => {
+    if (!businessId) return;
+    const check = () => countWaiting(businessId).then(setWaiting, () => {});
+    check();
+    const timer = setInterval(check, WAITING_POLL_MS);
+    return () => clearInterval(timer);
+  }, [businessId, location.pathname]);
 
   const handleLogout = async () => {
     await signOut();
@@ -79,6 +98,14 @@ export function AppSidebar() {
                     >
                       <item.icon className="mr-2 h-5 w-5" />
                       {!collapsed && <span>{item.title}</span>}
+                      {item.url === "/dashboard/inbox" && waiting > 0 && (
+                        <span
+                          className="ml-auto rounded-full bg-amber-500 px-2 text-xs font-semibold text-black"
+                          aria-label={`${waiting} waiting`}
+                        >
+                          {waiting}
+                        </span>
+                      )}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

@@ -114,6 +114,9 @@ export type Database = {
         Row: {
           business_id: string
           created_at: string
+          handoff_at: string | null
+          handoff_reason: string | null
+          handoff_status: string
           id: string
           ip_hash: string | null
           session_id: string
@@ -121,6 +124,9 @@ export type Database = {
         Insert: {
           business_id: string
           created_at?: string
+          handoff_at?: string | null
+          handoff_reason?: string | null
+          handoff_status?: string
           id?: string
           ip_hash?: string | null
           session_id: string
@@ -128,6 +134,9 @@ export type Database = {
         Update: {
           business_id?: string
           created_at?: string
+          handoff_at?: string | null
+          handoff_reason?: string | null
+          handoff_status?: string
           id?: string
           ip_hash?: string | null
           session_id?: string

@@ -4,6 +4,7 @@ import {
   isFollowUp,
   isSmallTalk,
   splitPlainReply,
+  wantsHuman,
   parsePriceRange,
 } from "./chat-utils";
 
@@ -90,4 +91,19 @@ describe("splitPlainReply", () => {
   it("leaves ordinary text alone", () => {
     expect(splitPlainReply("  Hi! How can I help?  ")).toEqual({ reply: "Hi! How can I help?", refs: [] });
   });
+});
+
+describe("wantsHuman", () => {
+  it.each([
+    "can I talk to a person?",
+    "I want to speak with someone",
+    "customer service please",
+    "is there a real person here",
+    "let me chat with your team",
+    "manusher sathe kotha bolte chai",
+  ])("yes: %s", (m) => expect(wantsHuman(m)).toBe(true));
+
+  it.each(["do you have shoes?", "is this shirt for a person who is tall?", "what's in my cart?"])("no: %s", (m) =>
+    expect(wantsHuman(m)).toBe(false),
+  );
 });
