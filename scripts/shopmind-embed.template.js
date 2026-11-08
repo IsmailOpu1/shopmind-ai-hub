@@ -144,6 +144,13 @@
     "#" + NS + " .sm-header-id{display:flex;align-items:center;gap:10px;}" +
     "#" + NS + " .sm-header-id .sm-avatar{width:36px;height:36px;font-size:15px;}" +
     "#" + NS + " .sm-row-asst .sm-avatar{margin:0 8px 0 0;align-self:flex-end;}" +
+    "#" + NS + " .sm-header-actions{display:flex;align-items:center;gap:4px;}" +
+    "#" + NS + " .sm-human{background:#fff;border:1px solid #d1d5db;border-radius:9999px;padding:5px 10px;font:600 12px/1 system-ui,-apple-system,sans-serif;color:#374151;cursor:pointer;}" +
+    "#" + NS + " .sm-human:hover{border-color:var(--sm-primary);color:var(--sm-primary);}" +
+    "#" + NS + " .sm-human[hidden]{display:none;}" +
+    "#" + NS + " .sm-bubble-agent{background:#fff;color:#111827;border:1px solid var(--sm-primary);border-bottom-left-radius:6px;}" +
+    "#" + NS + " .sm-agent-label{display:block;font-size:11px;font-weight:600;color:var(--sm-primary);margin-bottom:2px;}" +
+    "#" + NS + " .sm-note{align-self:center;font-size:12px;color:#6b7280;text-align:center;padding:2px 8px;}" +
     "#" + NS + " .sm-powered{font-size:10px;color:#9ca3af;text-align:center;padding:0 0 8px;background:#fff;}" +
     "#" +
     NS +
@@ -298,7 +305,10 @@
     '<p class="sm-header-sub"><span style="color:#22c55e">●</span> Online</p>' +
     "</div>" +
     "</div>" +
+    '<div class="sm-header-actions">' +
+    '<button type="button" class="sm-human">Talk to a person</button>' +
     '<button type="button" class="sm-close" aria-label="Close chat">×</button>' +
+    "</div>" +
     "</div>" +
     '<div class="sm-thread"></div>' +
     '<div class="sm-inputbar">' +
@@ -317,6 +327,7 @@
   var sendBtn = root.querySelector(".sm-send");
   var closeBtn = root.querySelector(".sm-close");
   var titleEl = root.querySelector(".sm-header-title");
+  var humanBtn = root.querySelector(".sm-human");
   applyConfig();
   fab.classList.add("sm-fab-pulse");
 
@@ -519,6 +530,16 @@
     var html = "";
     for (var i = 0; i < messages.length; i++) {
       var m = messages[i];
+      if (m.role === "note") {
+        html += '<div class="sm-row sm-note" role="status">' + esc(m.content) + "</div>";
+        continue;
+      }
+      if (m.role === "agent") {
+        html +=
+          '<div class="sm-row sm-row-asst"><div class="sm-bubble sm-bubble-agent">' +
+          '<span class="sm-agent-label">' + esc(teamName()) + "</span>" + esc(m.content) + "</div></div>";
+        continue;
+      }
       if (m.role === "suggestion") {
         html +=
           '<div class="sm-row sm-row-asst"><button type="button" class="sm-chip" data-sm-ask="' +
@@ -588,6 +609,7 @@
         Object.keys(config).forEach(function (k) {
           if (!overridden[k] && saved[k]) config[k] = saved[k];
         });
+        if (typeof saved.name === "string") storeName = saved.name;
         applyConfig();
         if (messages.length === 1 && messages[0].welcome) {
           messages[0].content = config.greeting;
@@ -653,6 +675,88 @@
       }
     }
   });
+
+  // Human handoff: the chat is with the store's team. The widget polls for
+  // their replies until the team hands the chat back to the assistant. The
+  // state survives page loads in this tab.
+  var handoffKey = sessionKey + "_handoff";
+  // open: the team has the chat; after: time of the last team reply shown in
+  // this tab, so a reply is never shown twice or missed.
+  var handoff = { open: false, after: "1970-01-01T00:00:00Z" };
+  var pollTimer = null;
+  var storeName = "";
+  function teamName() {
+    return (storeName || "Store") + " team";
+  }
+  function saveHandoff() {
+    try {
+      window.sessionStorage.setItem(handoffKey, JSON.stringify(handoff));
+    } catch (e) {
+      /* storage blocked */
+    }
+  }
+  function updateHumanBtn() {
+    humanBtn.hidden = handoff.open;
+  }
+  function startHandoff() {
+    handoff.open = true;
+    saveHandoff();
+    updateHumanBtn();
+    schedulePoll(0);
+  }
+  function schedulePoll(delay) {
+    clearTimeout(pollTimer);
+    if (handoff.open) pollTimer = setTimeout(poll, delay);
+  }
+  function poll() {
+    if (!handoff.open || !SM_SUPABASE_URL || !SM_ANON_KEY) return;
+    var q = "?business_id=" + encodeURIComponent(businessId) + "&session_id=" + encodeURIComponent(sessionId) +
+      "&after=" + encodeURIComponent(handoff.after);
+    fetch(chatUrl + q, { headers: { apikey: SM_ANON_KEY } })
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (data) {
+        if (!data || !handoff.open) return;
+        var list = Array.isArray(data.messages) ? data.messages : [];
+        for (var i = 0; i < list.length; i++) {
+          messages.push({ id: ++msgId, role: "agent", content: String(list[i].content || "") });
+          if (typeof list[i].created_at === "string") handoff.after = list[i].created_at;
+        }
+        if (list.length && !panel.classList.contains("sm-open")) fab.classList.add("sm-fab-pulse");
+        if (data.handoff_status !== "open") {
+          handoff.open = false;
+          updateHumanBtn();
+          messages.push({ id: ++msgId, role: "note", content: "The team has handed you back to the assistant." });
+        }
+        if (list.length || !handoff.open) {
+          saveHandoff();
+          renderMessages();
+        }
+      })
+      .catch(function () {
+        /* try again on the next poll */
+      })
+      .then(function () {
+        // Quicker while the chat is open on screen.
+        schedulePoll(panel.classList.contains("sm-open") ? 5000 : 15000);
+      });
+  }
+  humanBtn.addEventListener("click", function () {
+    if (handoff.open || typing) return;
+    if (!panel.classList.contains("sm-open")) openPanel();
+    input.value = "I'd like to talk to a person.";
+    send(true);
+  });
+  try {
+    var savedHandoff = JSON.parse(window.sessionStorage.getItem(handoffKey) || "null");
+    if (savedHandoff && typeof savedHandoff.after === "string") {
+      handoff = { open: savedHandoff.open === true, after: savedHandoff.after };
+    }
+  } catch (e) {
+    /* storage blocked or corrupt: start fresh */
+  }
+  if (handoff.open) startHandoff();
 
   // Proactive nudge after the shopper lingers (PRD: 30s on a page).
   var nudgeEl = null;
@@ -789,7 +893,7 @@
     }
   }
 
-  async function send() {
+  async function send(askForPerson) {
     var text = (input.value || "").trim();
     if (!text || typing) return;
     messages = messages.filter(function (m) {
@@ -828,6 +932,7 @@
           stream: true,
           page: { title: document.title || "", url: location.origin + location.pathname },
           cart: cart,
+          handoff: askForPerson === true,
         }),
       });
 
@@ -853,6 +958,11 @@
             "Something went wrong (" + res.status + "). Please try again.",
           isError: true,
         });
+      } else if (data.handoff === "open") {
+        // With the team: the bot doesn't answer; their replies arrive by polling.
+        if (data.reply) pushReply(data);
+        else messages.push({ id: ++msgId, role: "note", content: "Sent to the team." });
+        startHandoff();
       } else {
         pushReply(data);
       }

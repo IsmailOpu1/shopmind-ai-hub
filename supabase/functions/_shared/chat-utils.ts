@@ -128,3 +128,12 @@ export function splitPlainReply(text: string): { reply: string; refs: string[] }
   }
   return { reply: text.slice(0, match.index).trim(), refs };
 }
+
+// The shopper asks for a person (English and Banglish). The widget's "Talk
+// to a person" button sends an explicit flag; this catches typed requests.
+const HUMAN_RE =
+  /\b(human|real person|live (?:agent|chat|person)|(?:talk|speak|chat) (?:to|with) (?:a |an |the |your |some )?(?:person|agent|someone|somebody|staff|team|owner|manager|representative|rep|support)|customer (?:service|care|support)|call me|manush(?:er)?(?: sathe| er sathe)? kotha|kotha bolte chai)\b/i;
+
+export function wantsHuman(message: string): boolean {
+  return HUMAN_RE.test(message);
+}

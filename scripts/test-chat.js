@@ -58,6 +58,8 @@ const scenarios = [
   { name: "cart contents", cart: [{ id: OXFORD, quantity: 2 }, { sku: "TS-1499" }], turns: ["what's in my cart?"] },
   { name: "cart no push", cart: [{ id: OXFORD }], turns: ["do you have sunglasses?"] },
   { name: "cart checkout", cart: [{ id: OXFORD }, { id: BELT }], turns: ["ok I'm ready to buy, anything else I need?"] },
+  // human handoff: the bot steps aside; follow-ups go to the team (no reply)
+  { name: "handoff", turns: ["can I talk to a person?", "my order number is 1042"] },
 ];
 
 const runId = Date.now().toString(36);
@@ -80,7 +82,7 @@ for (const [i, scenario] of scenarios.entries()) {
       console.log(`  [${res.status}] ${data.error ?? "no body"} (${ms} ms)`);
       continue;
     }
-    console.log(`  ${data.reply}`);
+    console.log(`  ${data.reply ?? "(no bot reply: sent to the team)"}${data.handoff ? `  [handoff: ${data.handoff}]` : ""}`);
     const cards = (data.products ?? []).map((p) => `${p.name} (${p.price}, ${p.stock_status})`);
     console.log(`  cards: ${cards.join("; ") || "none"}  (${ms} ms)`);
   }

@@ -2,7 +2,7 @@ import {
   createClient,
   type SupabaseClient,
 } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { createReplyExtractor, isSmallTalk, splitPlainReply } from "../_shared/chat-utils.ts";
+import { createReplyExtractor, isSmallTalk, splitPlainReply, wantsHuman } from "../_shared/chat-utils.ts";
 import {
   buildSearchPlan,
   conversationContext,
@@ -494,6 +494,8 @@ GROUNDING (strict)
 - The CART lists what the shopper has in their cart, from the store's own data. Answer questions about the cart (what's in it, the total) only from it.
 - Products noted as "goes with the shopper's cart" are add-on ideas: suggest one or two, saying in a few words why they pair with what's in the cart. Never recommend a product that is already in the cart; refer to it by name instead.
 - You can't add items to the cart, place orders or take payment. Never offer to; if the shopper wants an item, point them to its product card.
+- For order problems (where is my order, refunds, damaged or wrong items, complaints), or anything only the store's staff can do, say they can tap "Talk to a person" to reach the team.
+- Earlier messages starting with "[Store team]" were written by the store's staff. Never contradict what they promised; if unsure, suggest talking to the team again.
 - If STORE INFO states a free-delivery minimum and the cart total is below it, you may mention how much more gets free delivery.
 - For sizes and colours, use only a product's variants. If a product has no variants listed, say you don't have size details for it.
 
@@ -520,8 +522,8 @@ function buildContents(history: ChatMessage[], message: string): GeminiContent[]
     const t = h.content.trim();
     if (!t) continue;
     contents.push({
-      role: h.role === "assistant" ? "model" : "user",
-      parts: [{ text: t }],
+      role: h.role === "user" ? "user" : "model",
+      parts: [{ text: h.role === "agent" ? `[Store team] ${t}` : t }],
     });
   }
   // Gemini expects the conversation to start with a user turn.
@@ -558,6 +560,45 @@ async function handleConfig(
       "Cache-Control": "public, max-age=300",
     },
   });
+}
+
+// While a chat is with the store's team, the widget polls for their replies.
+// The session id (random per browser tab) is what lets a shopper read them.
+const MAX_POLLED_MESSAGES = 20;
+
+async function handleHandoffPoll(url: URL, supabase: SupabaseClient): Promise<Response> {
+  const businessId = url.searchParams.get("business_id") ?? "";
+  const sessionId = url.searchParams.get("session_id") ?? "";
+  const after = url.searchParams.get("after") ?? "";
+  if (!UUID_RE.test(businessId) || !SESSION_RE.test(sessionId)) {
+    return json({ error: "business_id or session_id is invalid" }, 400);
+  }
+  const since = after && !Number.isNaN(Date.parse(after)) ? new Date(after).toISOString() : null;
+  const { data: conversation, error } = await supabase
+    .from("conversations")
+    .select("id, handoff_status")
+    .eq("business_id", businessId)
+    .eq("session_id", sessionId)
+    .maybeSingle();
+  if (error) throw new Error(`poll conversation: ${error.message}`);
+  let messages: Array<{ id: string; content: string; created_at: string }> = [];
+  if (conversation) {
+    let query = supabase
+      .from("messages")
+      .select("id, content, created_at")
+      .eq("conversation_id", conversation.id)
+      .eq("role", "agent")
+      .order("created_at", { ascending: true })
+      .limit(MAX_POLLED_MESSAGES);
+    if (since) query = query.gt("created_at", since);
+    const { data, error: msgError } = await query;
+    if (msgError) throw new Error(`poll messages: ${msgError.message}`);
+    messages = data ?? [];
+  }
+  return new Response(
+    JSON.stringify({ handoff_status: conversation?.handoff_status ?? "none", messages }),
+    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } },
+  );
 }
 
 const TRACKABLE_EVENTS = new Set(["view_click", "cart_click"]);
@@ -623,7 +664,9 @@ Deno.serve(async (req: Request) => {
 
   if (req.method === "GET") {
     try {
-      return await handleConfig(new URL(req.url), supabase);
+      const url = new URL(req.url);
+      if (url.searchParams.has("session_id")) return await handleHandoffPoll(url, supabase);
+      return await handleConfig(url, supabase);
     } catch (e) {
       console.error("chat config:", e instanceof Error ? e.message : String(e));
       return json({ error: "Could not load settings" }, 500);
@@ -644,6 +687,7 @@ Deno.serve(async (req: Request) => {
     track?: { type?: unknown; product_id?: unknown };
     page?: { title?: unknown; url?: unknown };
     cart?: unknown;
+    handoff?: unknown;
   };
   try {
     body = await req.json();
@@ -716,7 +760,7 @@ Deno.serve(async (req: Request) => {
         .maybeSingle(),
       supabase
         .from("conversations")
-        .select("id")
+        .select("id, handoff_status")
         .eq("business_id", businessId)
         .eq("session_id", sessionId)
         .maybeSingle(),
@@ -745,6 +789,47 @@ Deno.serve(async (req: Request) => {
       );
     }
     const business = businessResult.data as Business;
+
+    // Human handoff: the shopper asked for a person (button or words), or the
+    // chat is already with the team. The bot stays out of it; the message is
+    // saved for the team's inbox and the widget polls for their reply.
+    const existing = conversationResult.data as { id: string; handoff_status: string } | null;
+    const withTeam = existing?.handoff_status === "open";
+    if (withTeam || body.handoff === true || wantsHuman(message)) {
+      let conversationId = existing?.id;
+      if (!conversationId) {
+        const { data, error } = await supabase
+          .from("conversations")
+          .upsert(
+            { business_id: businessId, session_id: sessionId, ip_hash: ipHash },
+            { onConflict: "business_id,session_id" },
+          )
+          .select("id")
+          .single();
+        if (error || !data) throw new Error(`upsert conversation: ${error?.message}`);
+        conversationId = data.id;
+      }
+      const reply = withTeam
+        ? null
+        : `I've asked the ${business.name} team to join this chat. They'll reply right here as soon as they can. Feel free to add any details in the meantime.`;
+      if (!withTeam) {
+        const { error } = await supabase
+          .from("conversations")
+          .update({ handoff_status: "open", handoff_reason: message.slice(0, 500) })
+          .eq("id", conversationId);
+        if (error) throw new Error(`open handoff: ${error.message}`);
+      }
+      const rows: Array<Record<string, unknown>> = [
+        { conversation_id: conversationId, role: "user", content: message, product_ids: [], search_status: "skipped" },
+      ];
+      if (reply) {
+        rows.push({ conversation_id: conversationId, role: "assistant", content: reply, product_ids: [], search_status: null });
+      }
+      const { error: insertError } = await supabase.from("messages").insert(rows);
+      if (insertError) throw new Error(`save handoff message: ${insertError.message}`);
+      return json({ reply, products: [], handoff: "open", currency: business.currency });
+    }
+
     if (typeof EdgeRuntime !== "undefined") {
       EdgeRuntime.waitUntil(
         Promise.all([
