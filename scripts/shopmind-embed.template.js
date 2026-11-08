@@ -135,6 +135,8 @@
     "#" + NS + " .sm-card-actions{display:flex;gap:8px;margin-top:10px;}" +
     "#" + NS + " .sm-card-btn{flex:1;text-align:center;font-size:12px;font-weight:600;padding:8px 10px;border-radius:8px;text-decoration:none;cursor:pointer;border:1px solid var(--sm-primary);color:var(--sm-primary);background:#fff;}" +
     "#" + NS + " .sm-card-btn-primary{background:var(--sm-primary);color:#fff;}" +
+    "#" + NS + " .sm-chip{font:inherit;font-size:13px;padding:7px 12px;border-radius:16px;border:1px solid var(--sm-primary);color:var(--sm-primary);background:#fff;cursor:pointer;text-align:left;max-width:85%;}" +
+    "#" + NS + " .sm-chip:hover{background:var(--sm-primary);color:#fff;}" +
     "#" + NS + " .sm-powered{font-size:10px;color:#9ca3af;text-align:center;padding:0 0 8px;background:#fff;}" +
     "#" +
     NS +
@@ -392,12 +394,12 @@
       if (config.cart_mode === "event") {
         html +=
           '<button type="button" class="sm-card-btn sm-card-btn-primary" data-sm-cart="' + pid + '"' +
-          ' data-sm-track="cart_click" data-sm-pid="' + pid + '">Add to cart</button>';
+          ' data-sm-track="cart_click" data-sm-pid="' + pid + '">' + (inCart(p) ? "Added" : "Add to cart") + "</button>";
       } else if (config.cart_mode === "url") {
-        var cart = cartUrl(p);
-        if (cart) {
+        var link = cartUrl(p);
+        if (link) {
           html +=
-            '<a class="sm-card-btn sm-card-btn-primary" href="' + esc(cart) + '"' +
+            '<a class="sm-card-btn sm-card-btn-primary" href="' + esc(link) + '"' +
             ' data-sm-track="cart_click" data-sm-pid="' + pid + '">Add to cart</a>';
         }
       }
@@ -429,10 +431,81 @@
 
   var productsById = {};
 
+  // The shopper's cart, so the assistant can answer about it and suggest
+  // add-ons. Stores report it with ShopMind.setCart([{ sku, quantity }]) or a
+  // "shopmind:cart" event; items added from the chat are remembered too.
+  // Only ids/SKUs are sent: the server looks up names and prices itself.
+  var MAX_CART = 20;
+  var cartKey = sessionKey + "_cart";
+  var cart = [];
+  function cleanCart(items) {
+    var out = [];
+    if (!Array.isArray(items)) return out;
+    for (var i = 0; i < items.length && out.length < MAX_CART; i++) {
+      var it = items[i] || {};
+      var id = it.id != null ? String(it.id).slice(0, 64) : null;
+      var sku = it.sku != null && String(it.sku).trim() ? String(it.sku).trim().slice(0, 100) : null;
+      if (!id && !sku) continue;
+      var q = Math.floor(Number(it.quantity == null ? 1 : it.quantity));
+      out.push({ id: id, sku: sku, quantity: isFinite(q) && q > 0 ? Math.min(q, 99) : 1 });
+    }
+    return out;
+  }
+  function saveCart() {
+    try {
+      window.sessionStorage.setItem(cartKey, JSON.stringify(cart));
+    } catch (e) {
+      /* storage blocked */
+    }
+  }
+  function setCart(items) {
+    cart = cleanCart(items);
+    saveCart();
+    if (panel.classList.contains("sm-open")) renderMessages();
+  }
+  function addToCart(p) {
+    for (var i = 0; i < cart.length; i++) {
+      if ((p.id && cart[i].id === p.id) || (p.sku && cart[i].sku === p.sku)) {
+        cart[i].quantity = Math.min(cart[i].quantity + 1, 99);
+        saveCart();
+        return;
+      }
+    }
+    if (cart.length < MAX_CART) cart.push({ id: p.id || null, sku: p.sku || null, quantity: 1 });
+    saveCart();
+  }
+  function inCart(p) {
+    for (var i = 0; i < cart.length; i++) {
+      if ((p.id && cart[i].id === p.id) || (p.sku && cart[i].sku === p.sku)) return true;
+    }
+    return false;
+  }
+  try {
+    cart = cleanCart(JSON.parse(window.sessionStorage.getItem(cartKey) || "[]"));
+  } catch (e) {
+    cart = [];
+  }
+  var api = (window.ShopMind = window.ShopMind || {});
+  if (Array.isArray(api.cart)) setCart(api.cart); // set before the script loaded
+  api.setCart = setCart;
+  api.getCart = function () {
+    return cart.slice();
+  };
+  window.addEventListener("shopmind:cart", function (e) {
+    var d = e && e.detail;
+    setCart(Array.isArray(d) ? d : d && d.items);
+  });
+
   function renderMessages() {
     var html = "";
     for (var i = 0; i < messages.length; i++) {
       var m = messages[i];
+      if (m.role === "suggestion") {
+        html +=
+          '<div class="sm-row sm-row-asst"><button type="button" class="sm-chip" data-sm-ask="' +
+          esc(m.content) + '">' + esc(m.content) + "</button></div>";
+        continue;
+      }
       var rowClass = m.role === "user" ? "sm-row-user" : "sm-row-asst";
       var bubClass =
         m.role === "user"
@@ -531,6 +604,13 @@
   thread.addEventListener("click", function (e) {
     var target = e.target;
     if (!target || !target.closest) return;
+    var chip = target.closest("[data-sm-ask]");
+    if (chip) {
+      if (typing) return;
+      input.value = chip.getAttribute("data-sm-ask");
+      send();
+      return;
+    }
     var tracked = target.closest("[data-sm-track]");
     if (tracked) track(tracked.getAttribute("data-sm-track"), tracked.getAttribute("data-sm-pid"));
     target = target.closest("[data-sm-cart]");
@@ -544,6 +624,12 @@
         })
       );
       target.textContent = "Added";
+      addToCart(p);
+      // Offer the natural next question instead of pushing add-ons unasked.
+      if (!typing) {
+        messages.push({ id: ++msgId, role: "suggestion", content: "What goes well with the " + p.name + "?" });
+        renderMessages();
+      }
     }
   });
 
@@ -672,6 +758,9 @@
   async function send() {
     var text = (input.value || "").trim();
     if (!text || typing) return;
+    messages = messages.filter(function (m) {
+      return m.role !== "suggestion";
+    });
 
 
     messages.push({ id: ++msgId, role: "user", content: text });
@@ -704,6 +793,7 @@
           session_id: sessionId,
           stream: true,
           page: { title: document.title || "", url: location.origin + location.pathname },
+          cart: cart,
         }),
       });
 

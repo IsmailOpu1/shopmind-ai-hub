@@ -27,6 +27,10 @@ if (!SUPABASE_URL || !ANON_KEY || !BUSINESS_ID) {
   process.exit(1);
 }
 
+// Demo store products used by the cart scenarios.
+const OXFORD = "74254b78-b0e7-4f7e-b4d8-228010665ce3";
+const BELT = "04b89239-73a3-4a70-a348-6b17d50a5ec1";
+
 const scenarios = [
   { name: "greeting", turns: ["hi"] },
   { name: "budget", turns: ["I need a jacket under 6000"] },
@@ -48,6 +52,12 @@ const scenarios = [
   { name: "store size", turns: ["show me the oxford shirt", "Is size M in stock?"] },
   { name: "store city delivery", turns: ["How long does delivery to Chittagong take?"] },
   { name: "store size sold out", turns: ["do you have the cream linen shirt in size M?"] },
+  // cart awareness: the cart is sent with every turn, like the widget does.
+  // The demo store's products mostly have no SKU, so they're sent by id.
+  { name: "cart cross-sell", cart: [{ id: OXFORD }], turns: ["What goes well with the Oxford shirt?"] },
+  { name: "cart contents", cart: [{ id: OXFORD, quantity: 2 }, { sku: "TS-1499" }], turns: ["what's in my cart?"] },
+  { name: "cart no push", cart: [{ id: OXFORD }], turns: ["do you have sunglasses?"] },
+  { name: "cart checkout", cart: [{ id: OXFORD }, { id: BELT }], turns: ["ok I'm ready to buy, anything else I need?"] },
 ];
 
 const runId = Date.now().toString(36);
@@ -61,7 +71,7 @@ for (const [i, scenario] of scenarios.entries()) {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: ANON_KEY },
-      body: JSON.stringify({ message, business_id: BUSINESS_ID, session_id: sessionId }),
+      body: JSON.stringify({ message, business_id: BUSINESS_ID, session_id: sessionId, cart: scenario.cart }),
     });
     const data = await res.json().catch(() => ({}));
     const ms = Date.now() - started;
