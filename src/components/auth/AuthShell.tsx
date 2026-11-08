@@ -1,6 +1,7 @@
 import { type ReactNode, Suspense, lazy, useCallback, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Brain, Headset, Languages, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Headset, Languages, ShieldCheck } from "lucide-react";
+import BrandMark from "@/components/BrandMark";
 
 const HeroScene = lazy(() => import("@/components/landing/HeroScene"));
 
@@ -24,9 +25,7 @@ export default function AuthShell({ title, subtitle, children }: Props) {
       {/* Brand panel (large screens) */}
       <aside className="relative hidden w-[52%] flex-col justify-between overflow-hidden border-r border-white/[0.06] p-12 lg:flex xl:p-16">
         <Link to="/" className="relative z-10 flex items-center gap-2.5">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-900/50">
-            <Brain className="h-5 w-5 text-white" />
-          </span>
+          <BrandMark className="h-10 w-10" />
           <span className="text-xl font-semibold tracking-tight text-white">ShopMind AI</span>
         </Link>
 
@@ -64,9 +63,7 @@ export default function AuthShell({ title, subtitle, children }: Props) {
       <main className="relative flex flex-1 flex-col px-4 py-6 sm:px-8">
         <div className="flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 lg:hidden">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600">
-              <Brain className="h-5 w-5 text-white" />
-            </span>
+            <BrandMark />
             <span className="font-semibold text-white">ShopMind AI</span>
           </Link>
           <Link

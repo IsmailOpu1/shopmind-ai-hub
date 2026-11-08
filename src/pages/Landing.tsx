@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useState } from "react";
 import { Link } from "react-router-dom";
+import BrandMark from "@/components/BrandMark";
 import {
   ArrowRight,
   BarChart3,
@@ -223,9 +224,7 @@ const Landing = () => {
       <header className="sticky top-0 z-40 border-b border-white/[0.06] bg-[#070b17]/70 backdrop-blur-xl">
         <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6" aria-label="Main">
           <Link to="/" className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-900/50">
-              <Brain className="h-5 w-5 text-white" />
-            </span>
+            <BrandMark />
             <span className="text-lg font-semibold tracking-tight text-white">ShopMind AI</span>
           </Link>
           <div className="hidden items-center gap-8 text-sm text-slate-400 md:flex">
@@ -522,7 +521,7 @@ const Landing = () => {
       <footer className="border-t border-white/[0.06] py-10">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 text-sm text-slate-500 sm:flex-row sm:px-6">
           <div className="flex items-center gap-2">
-            <Brain className="h-4 w-4 text-blue-400" />
+            <BrandMark className="h-6 w-6" />
             <span>ShopMind AI</span>
           </div>
           <div className="flex gap-6">
