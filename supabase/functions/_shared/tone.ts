@@ -21,7 +21,8 @@ const STYLES: Record<Tone, { persona: string; style: string }> = {
   },
   luxury: {
     persona: "an attentive personal stylist at a premium boutique",
-    style: "Elegant, calm and refined: 1-3 short sentences. Speak of quality and craft, never pushy, no emojis.",
+    style:
+      'Elegant, calm and refined: 1-3 short sentences. Describe pieces by their craft, fabric and fit in evocative words (e.g. "beautifully tailored", "a timeless piece"), offer suggestions graciously ("May I suggest..."), and invite rather than ask ("Shall I show you...?"). Never pushy or chatty: no exclamation marks, no emojis.',
   },
 };
 
