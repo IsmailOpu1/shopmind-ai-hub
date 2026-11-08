@@ -1,5 +1,5 @@
 import { Brain, LogOut } from "lucide-react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import {
   Sidebar,
@@ -15,6 +15,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { useLogout } from "@/hooks/useLogout";
 import { NAV_GROUPS, navItemFor } from "@/lib/nav";
 
 type Props = { businessName: string; waiting: number };
@@ -23,14 +24,11 @@ export function AppSidebar({ businessName, waiting }: Props) {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed" && !isMobile;
   const location = useLocation();
-  const navigate = useNavigate();
-  const { signOut, user } = useAuth();
+  const { user } = useAuth();
+  const logout = useLogout();
   const current = navItemFor(location.pathname);
 
-  const handleLogout = async () => {
-    await signOut();
-    navigate("/login");
-  };
+  const handleLogout = () => void logout();
 
   return (
     <Sidebar collapsible="icon" className="app-sidebar border-r border-white/[0.06]">

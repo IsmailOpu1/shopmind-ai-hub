@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import ChatWidget from "@/components/ChatWidget";
+import AccountMenu from "@/components/AccountMenu";
 import { countWaiting } from "@/lib/inbox";
 import { navItemFor } from "@/lib/nav";
 
@@ -66,13 +67,7 @@ const DashboardLayout = () => {
                 {waiting} waiting
               </Link>
             )}
-            <div
-              className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/80 to-violet-600/80 text-sm font-semibold text-white sm:flex"
-              title={businessName}
-              aria-hidden="true"
-            >
-              {(businessName.charAt(0) || "S").toUpperCase()}
-            </div>
+            <AccountMenu businessName={businessName} />
           </header>
           <div className="app-main flex-1 overflow-x-hidden px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             <div key={location.pathname} className="page-enter mx-auto w-full max-w-7xl">
