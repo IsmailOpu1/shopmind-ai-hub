@@ -1208,3 +1208,31 @@
   box-shadow: 0 30px 70px -34px rgba(59, 130, 246, 0.55);
   transform: translateY(-3px);
 }
+
+/* Page scrollbars: thin and dark to match the site, with the brand gradient
+   on the thumb. Firefox gets the standard properties; Chromium/Safari use the
+   ::-webkit-scrollbar ones (setting scrollbar-color there would disable them). */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #070b17;
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.55), rgba(124, 58, 237, 0.55));
+  border: 2px solid #070b17;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.85), rgba(124, 58, 237, 0.85));
+}
+::-webkit-scrollbar-corner {
+  background: #070b17;
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(99, 102, 241, 0.6) #070b17;
+  }
+}

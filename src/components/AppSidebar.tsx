@@ -32,10 +32,18 @@ export function AppSidebar({ businessName, waiting }: Props) {
 
   return (
     <Sidebar collapsible="icon" className="app-sidebar border-r border-white/[0.06]">
-      <SidebarHeader className="px-3 pb-2 pt-4">
-        <Link to="/dashboard" className="flex items-center gap-2.5 rounded-xl px-1 py-1" onClick={() => setOpenMobile(false)}>
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-900/50">
-            <Brain className="h-5 w-5 text-white" />
+      <SidebarHeader className={collapsed ? "px-2 pb-2 pt-4" : "px-3 pb-2 pt-4"}>
+        <Link
+          to="/dashboard"
+          aria-label="ShopMind AI home"
+          className={`flex items-center gap-2.5 rounded-xl py-1 ${collapsed ? "justify-center px-0" : "px-1"}`}
+          onClick={() => setOpenMobile(false)}
+        >
+          {/* Fits the 3rem collapsed rail (8px padding each side). */}
+          <span
+            className={`flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-900/50 ${collapsed ? "h-8 w-8" : "h-9 w-9"}`}
+          >
+            <Brain className={collapsed ? "h-[18px] w-[18px] text-white" : "h-5 w-5 text-white"} />
           </span>
           {!collapsed && <span className="text-base font-semibold tracking-tight text-white">ShopMind AI</span>}
         </Link>
