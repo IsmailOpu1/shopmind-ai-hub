@@ -125,6 +125,12 @@ describe("mapShopifyProduct", () => {
     ]);
   });
 
+  it("drops links too long for the database instead of cutting them", () => {
+    const long = `https://cdn.shop.com/${"a".repeat(1100)}.jpg`;
+    const p = mapShopifyProduct({ ...shopifyProduct, images: [{ src: long }] }, "https://shop.com")!;
+    expect(p.image_url).toBeNull();
+  });
+
   it("marks a product out of stock when no variant is available, and skips junk", () => {
     const sold = mapShopifyProduct({ ...shopifyProduct, variants: [{ price: "5", available: false }] }, "https://s.com")!;
     expect(sold.stock_status).toBe("out_of_stock");

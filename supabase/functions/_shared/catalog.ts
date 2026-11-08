@@ -220,10 +220,11 @@ const money = (v: unknown): number | null => {
 };
 
 const httpsUrl = (v: unknown): string | null => {
-  const s = str(v, 1000);
+  const s = str(v, 2000);
   if (!s) return null;
   const full = s.startsWith("//") ? `https:${s}` : s;
-  return /^https?:\/\//i.test(full) ? full : null;
+  // A cut-off link would be broken, so links over the limit are dropped.
+  return /^https?:\/\//i.test(full) && full.length <= 1000 ? full : null;
 };
 
 const isSize = (name: string) => /\b(size|sizes|taille|größe|talla)\b/i.test(name);
@@ -294,7 +295,7 @@ export function mapShopifyProduct(raw: unknown, base: string): CatalogProduct | 
     category: str(p.product_type, 100),
     price,
     image_url: httpsUrl(images[0]?.src),
-    product_url: handle ? `${base}/products/${encodeURIComponent(handle)}` : null,
+    product_url: handle ? httpsUrl(`${base}/products/${encodeURIComponent(handle)}`) : null,
     sku: str(variants[0]?.sku, 100),
     stock_status: inStock ? "in_stock" : "out_of_stock",
     promo: price !== null && wasPrice !== null && wasPrice > price ? `On sale (was ${wasPrice})` : null,

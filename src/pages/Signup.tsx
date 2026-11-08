@@ -50,6 +50,7 @@ const Signup = () => {
             value={businessName}
             onChange={(e) => setBusinessName(e.target.value)}
             required
+            maxLength={100}
             className="auth-input"
           />
         </div>

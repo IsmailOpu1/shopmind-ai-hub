@@ -129,7 +129,8 @@
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   var css =
@@ -374,9 +375,10 @@
   }
 
   function renderProductCard(p) {
-    var imgHtml = p.image_url
+    var imgUrl = safeUrl(p.image_url);
+    var imgHtml = imgUrl
       ? '<div class="sm-card-img"><img src="' +
-        esc(p.image_url) +
+        esc(imgUrl) +
         '" alt="' +
         esc(p.name) +
         '" loading="lazy"/></div>'
@@ -429,7 +431,8 @@
       if (v == null || v === "") missing = true;
       return encodeURIComponent(v == null ? "" : String(v));
     });
-    if (missing || !/^(https?:\/\/|\/)/i.test(url)) return null;
+    // Web links, or same-site paths ("/cart/add"); never "//other-site".
+    if (missing || !/^(https?:\/\/|\/(?![\/\\]))/i.test(url)) return null;
     return url;
   }
 

@@ -24,7 +24,10 @@ export type Database = {
           shopper_memory: boolean
           widget_seen_at: string | null
           widget_seen_origin: string | null
+          catalog_last_request_at: string | null
           catalog_platform: string | null
+          catalog_requests_count: number
+          catalog_requests_window_start: string | null
           catalog_url: string | null
           catalog_synced_at: string | null
           catalog_sync_started_at: string | null
@@ -50,7 +53,10 @@ export type Database = {
           shopper_memory?: boolean
           widget_seen_at?: string | null
           widget_seen_origin?: string | null
+          catalog_last_request_at?: string | null
           catalog_platform?: string | null
+          catalog_requests_count?: number
+          catalog_requests_window_start?: string | null
           catalog_url?: string | null
           catalog_synced_at?: string | null
           catalog_sync_started_at?: string | null
@@ -76,7 +82,10 @@ export type Database = {
           shopper_memory?: boolean
           widget_seen_at?: string | null
           widget_seen_origin?: string | null
+          catalog_last_request_at?: string | null
           catalog_platform?: string | null
+          catalog_requests_count?: number
+          catalog_requests_window_start?: string | null
           catalog_url?: string | null
           catalog_synced_at?: string | null
           catalog_sync_started_at?: string | null
@@ -424,6 +433,10 @@ export type Database = {
     Functions: {
       check_chat_rate_limit: {
         Args: { p_business_id: string; p_ip_hash: string; p_session_id: string }
+        Returns: string
+      }
+      claim_catalog_request: {
+        Args: { p_business_id: string }
         Returns: string
       }
       match_document_chunks: {

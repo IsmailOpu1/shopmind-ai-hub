@@ -47,7 +47,13 @@ const parsePrice = (value: unknown): number | null => {
 
 const parseUrl = (value: unknown): string | null => {
   const v = value ? String(value).trim() : "";
-  return /^https?:\/\//i.test(v) ? v : null;
+  return /^https?:\/\//i.test(v) && v.length <= 1000 ? v : null;
+};
+
+// Spreadsheet text, trimmed to the sizes the database accepts.
+const parseText = (value: unknown, max: number): string | null => {
+  const v = value == null ? "" : String(value).trim();
+  return v ? v.slice(0, max) : null;
 };
 
 // The database only accepts "in_stock" / "out_of_stock"; spreadsheets use many spellings.
@@ -171,17 +177,17 @@ const Products = () => {
     setUploading(true);
     const toInsert = rows.map((r, i) => ({
       business_id: businessId,
-      name: String(r.name),
-      description: r.description ? String(r.description) : null,
+      name: String(r.name).trim().slice(0, 300),
+      description: parseText(r.description, 5000),
       price: parsePrice(r.price),
       image_url: parseUrl(r.image_url),
-      category: r.category ? String(r.category) : null,
+      category: parseText(r.category, 100),
       // Without a stock_status, a product with variants is in stock if any variant is.
       stock_status: r.stock_status != null && String(r.stock_status).trim()
         ? normalizeStockStatus(r.stock_status)
         : stockFromVariants(parsed[i].variants) ?? "in_stock",
       variants: parsed[i].variants,
-      promo: r.promo ? String(r.promo) : null,
+      promo: parseText(r.promo, 200),
       product_url: parseUrl(r.product_url),
       sku: r.sku != null && String(r.sku).trim() ? String(r.sku).trim().slice(0, 100) : null,
     }));

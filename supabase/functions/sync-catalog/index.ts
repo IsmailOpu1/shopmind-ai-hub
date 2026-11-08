@@ -48,6 +48,21 @@ Deno.serve(async (req: Request) => {
   const platform = PLATFORMS.includes(body.platform as Platform) ? (body.platform as Platform) : null;
   const url = normalizeStoreUrl(body.url);
 
+  // Each of these reads another website, so they are limited per store.
+  if (body.action === "preview" || body.action === "connect" || body.action === "sync") {
+    const { data: claim, error: claimError } = await supabase.rpc("claim_catalog_request", {
+      p_business_id: business.id,
+    });
+    if (claimError) {
+      console.error("sync-catalog: rate limit check failed", claimError.message);
+      return json({ error: "Something went wrong. Please try again." }, 500);
+    }
+    if (claim === "too_fast") return json({ error: "Please wait a few seconds and try again." }, 429);
+    if (claim !== "ok") {
+      return json({ error: "Too many store syncs this hour. Please try again later." }, 429);
+    }
+  }
+
   try {
     switch (body.action) {
       case "preview": {
