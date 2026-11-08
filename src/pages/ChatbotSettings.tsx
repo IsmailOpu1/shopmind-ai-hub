@@ -14,10 +14,11 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Save, Bot, MessageCircle, Palette, Copy, CheckCircle2, Loader2, Code, Coins, PanelRight, ShoppingCart } from "lucide-react";
+import { Save, Bot, MessageCircle, Palette, Copy, CheckCircle2, Loader2, Code, Coins, PanelRight, ShoppingCart, Sparkles, ImageIcon, Upload, Trash2 } from "lucide-react";
 import { CURRENCIES } from "@/lib/utils";
 import { type CartMode, validateCartTemplate } from "@/lib/cart";
 import { markOnboarding } from "@/lib/onboarding-data";
+import { AVATAR_TYPES, TONE_OPTIONS, type ToneValue, avatarPathFromUrl, validateAvatar } from "@/lib/tone";
 import LoadingSpinner from "@/components/LoadingSpinner";
 
 const ChatbotSettings = () => {
@@ -32,6 +33,11 @@ const ChatbotSettings = () => {
   const [currency, setCurrency] = useState("BDT");
   const [cartMode, setCartMode] = useState<CartMode>("off");
   const [cartUrlTemplate, setCartUrlTemplate] = useState("");
+  const [tone, setTone] = useState<ToneValue>("friendly");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  // The logo saved in the database, so a replaced one can be deleted after saving.
+  const [savedAvatarUrl, setSavedAvatarUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [businessId, setBusinessId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -44,7 +50,7 @@ const ChatbotSettings = () => {
     const fetchSettings = async () => {
       const { data, error } = await supabase
         .from("businesses")
-        .select("id, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template")
+        .select("id, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template, tone, avatar_url")
         .eq("owner_id", user.id)
         .maybeSingle();
 
@@ -56,6 +62,9 @@ const ChatbotSettings = () => {
         setCurrency(data.currency ?? "BDT");
         setCartMode((data.cart_mode as CartMode) ?? "off");
         setCartUrlTemplate(data.cart_url_template ?? "");
+        setTone(TONE_OPTIONS.some((t) => t.value === data.tone) ? (data.tone as ToneValue) : "friendly");
+        setAvatarUrl(data.avatar_url ?? null);
+        setSavedAvatarUrl(data.avatar_url ?? null);
         setBusinessId(data.id);
       }
       setLoading(false);
@@ -98,16 +107,58 @@ const ChatbotSettings = () => {
         currency,
         cart_mode: cartMode,
         cart_url_template: cartMode === "url" ? cartUrlTemplate.trim() : cartUrlTemplate.trim() || null,
+        tone,
+        avatar_url: avatarUrl,
       })
       .eq("owner_id", user.id);
 
     if (error) {
       toast.error(error.message);
     } else {
+      // The old logo is no longer used anywhere once the new one is saved.
+      const oldPath = avatarPathFromUrl(savedAvatarUrl);
+      if (oldPath && savedAvatarUrl !== avatarUrl) {
+        void supabase.storage.from("bot-avatars").remove([oldPath]);
+      }
+      setSavedAvatarUrl(avatarUrl);
       toast.success("Chatbot settings updated.");
       if (businessId) void markOnboarding(businessId, "customized_at");
     }
     setSaving(false);
+  };
+
+  // Drops an uploaded logo that was never saved (it isn't used anywhere).
+  const discardUnsaved = () => {
+    const unsaved = avatarPathFromUrl(avatarUrl);
+    if (unsaved && avatarUrl !== savedAvatarUrl) void supabase.storage.from("bot-avatars").remove([unsaved]);
+  };
+
+  const handleAvatarFile = async (file: File | undefined) => {
+    if (!file || !businessId) return;
+    const problem = validateAvatar(file);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
+    setUploading(true);
+    const ext = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+    const path = `${businessId}/avatar-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage
+      .from("bot-avatars")
+      .upload(path, file, { contentType: file.type, cacheControl: "31536000", upsert: false });
+    setUploading(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    discardUnsaved();
+    setAvatarUrl(supabase.storage.from("bot-avatars").getPublicUrl(path).data.publicUrl);
+    toast.success("Logo uploaded. Save settings to use it.");
+  };
+
+  const handleAvatarRemove = () => {
+    discardUnsaved();
+    setAvatarUrl(null);
   };
 
   if (loading) return <LoadingSpinner message="Loading settings..." />;
@@ -173,6 +224,76 @@ const ChatbotSettings = () => {
                 />
               </div>
 
+
+              {/* Tone */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <Sparkles className="h-4 w-4 text-blue-400" />
+                  Tone
+                </Label>
+                <Select value={tone} onValueChange={(v) => setTone(v as ToneValue)}>
+                  <SelectTrigger className="chatbot-input-dark" aria-label="Tone">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TONE_OPTIONS.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  For example: &ldquo;{TONE_OPTIONS.find((t) => t.value === tone)?.example}&rdquo; The tone only changes
+                  how replies sound; the assistant still answers only from your products and store info.
+                </p>
+              </div>
+
+              {/* Logo */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <ImageIcon className="h-4 w-4 text-blue-400" />
+                  Logo
+                </Label>
+                <div className="flex items-center gap-3">
+                  <div
+                    className="h-12 w-12 rounded-full border border-gray-600 overflow-hidden flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt="Chatbot logo" className="h-full w-full object-cover" />
+                    ) : (
+                      <Bot className="h-6 w-6 text-white" />
+                    )}
+                  </div>
+                  <label className="inline-flex">
+                    <input
+                      type="file"
+                      accept={AVATAR_TYPES.join(",")}
+                      className="sr-only"
+                      aria-label="Upload logo"
+                      disabled={uploading || !businessId}
+                      onChange={(e) => {
+                        void handleAvatarFile(e.target.files?.[0]);
+                        e.target.value = "";
+                      }}
+                    />
+                    <span className="inline-flex items-center rounded-md border border-gray-600 px-3 h-9 text-sm cursor-pointer hover:bg-gray-800">
+                      {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                      {avatarUrl ? "Replace" : "Upload"}
+                    </span>
+                  </label>
+                  {avatarUrl && (
+                    <Button type="button" variant="ghost" size="sm" onClick={handleAvatarRemove} aria-label="Remove logo">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Shown in the chat header and next to the assistant&rsquo;s replies. PNG, JPG or WebP, up to 512 KB; a
+                  square image works best.
+                </p>
+              </div>
 
               {/* Primary Color */}
               <div className="space-y-2">

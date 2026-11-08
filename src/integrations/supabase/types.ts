@@ -19,6 +19,8 @@ export type Database = {
           bot_name: string
           cart_mode: string
           cart_url_template: string | null
+          avatar_url: string | null
+          tone: string
           created_at: string
           currency: string
           daily_message_limit: number
@@ -34,6 +36,8 @@ export type Database = {
           bot_name?: string
           cart_mode?: string
           cart_url_template?: string | null
+          avatar_url?: string | null
+          tone?: string
           created_at?: string
           currency?: string
           daily_message_limit?: number
@@ -49,6 +53,8 @@ export type Database = {
           bot_name?: string
           cart_mode?: string
           cart_url_template?: string | null
+          avatar_url?: string | null
+          tone?: string
           created_at?: string
           currency?: string
           daily_message_limit?: number
