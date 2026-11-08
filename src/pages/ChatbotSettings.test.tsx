@@ -156,3 +156,23 @@ describe("ChatbotSettings: tone and logo", () => {
     expect(db.updates[0].avatar_url).toBeNull();
   });
 });
+
+describe("ChatbotSettings: shopper memory", () => {
+  it("is on by default and can be turned off", async () => {
+    render(<ChatbotSettings />);
+    const toggle = await screen.findByRole("switch", { name: "Remember returning shoppers" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    save();
+    await waitFor(() => expect(db.updates).toHaveLength(1));
+    expect(db.updates[0]).toMatchObject({ shopper_memory: false });
+  });
+
+  it("loads a store's saved choice", async () => {
+    db.row = { ...db.row, shopper_memory: false };
+    render(<ChatbotSettings />);
+    const toggle = await screen.findByRole("switch", { name: "Remember returning shoppers" });
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
+  });
+});

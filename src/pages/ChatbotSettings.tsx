@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -14,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Save, Bot, MessageCircle, Palette, Copy, CheckCircle2, Loader2, Code, Coins, PanelRight, ShoppingCart, Sparkles, ImageIcon, Upload, Trash2 } from "lucide-react";
+import { Save, Bot, MessageCircle, Palette, Copy, CheckCircle2, Loader2, Code, Coins, PanelRight, ShoppingCart, Sparkles, ImageIcon, Upload, Trash2, History } from "lucide-react";
 import { CURRENCIES } from "@/lib/utils";
 import { type CartMode, validateCartTemplate } from "@/lib/cart";
 import { markOnboarding } from "@/lib/onboarding-data";
@@ -35,6 +36,7 @@ const ChatbotSettings = () => {
   const [cartUrlTemplate, setCartUrlTemplate] = useState("");
   const [tone, setTone] = useState<ToneValue>("friendly");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [shopperMemory, setShopperMemory] = useState(true);
   // The logo saved in the database, so a replaced one can be deleted after saving.
   const [savedAvatarUrl, setSavedAvatarUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -50,7 +52,7 @@ const ChatbotSettings = () => {
     const fetchSettings = async () => {
       const { data, error } = await supabase
         .from("businesses")
-        .select("id, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template, tone, avatar_url")
+        .select("id, bot_name, greeting, primary_color, fab_position, currency, cart_mode, cart_url_template, tone, avatar_url, shopper_memory")
         .eq("owner_id", user.id)
         .maybeSingle();
 
@@ -64,6 +66,7 @@ const ChatbotSettings = () => {
         setCartUrlTemplate(data.cart_url_template ?? "");
         setTone(TONE_OPTIONS.some((t) => t.value === data.tone) ? (data.tone as ToneValue) : "friendly");
         setAvatarUrl(data.avatar_url ?? null);
+        setShopperMemory(data.shopper_memory !== false);
         setSavedAvatarUrl(data.avatar_url ?? null);
         setBusinessId(data.id);
       }
@@ -109,6 +112,7 @@ const ChatbotSettings = () => {
         cart_url_template: cartMode === "url" ? cartUrlTemplate.trim() : cartUrlTemplate.trim() || null,
         tone,
         avatar_url: avatarUrl,
+        shopper_memory: shopperMemory,
       })
       .eq("owner_id", user.id);
 
@@ -246,6 +250,23 @@ const ChatbotSettings = () => {
                 <p className="text-xs text-muted-foreground">
                   For example: &ldquo;{TONE_OPTIONS.find((t) => t.value === tone)?.example}&rdquo; The tone only changes
                   how replies sound; the assistant still answers only from your products and store info.
+                </p>
+              </div>
+
+              {/* Shopper memory */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="shopper-memory" className="flex items-center gap-2 text-sm font-medium">
+                    <History className="h-4 w-4 text-blue-400" />
+                    Remember returning shoppers
+                  </Label>
+                  <Switch id="shopper-memory" checked={shopperMemory} onCheckedChange={setShopperMemory} />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The assistant keeps short notes on what a shopper tells it (size, colours, budget) and the products it
+                  showed them, so it can pick up where they left off on their next visit. Notes never include contact
+                  or payment details, are tied to an anonymous browser id, and are deleted after 90 days without a
+                  visit. Shoppers can say &ldquo;forget me&rdquo; at any time.
                 </p>
               </div>
 
