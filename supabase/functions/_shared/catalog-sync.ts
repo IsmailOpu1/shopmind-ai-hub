@@ -105,9 +105,24 @@ export async function syncCatalog(
     if (error) throw new Error(`load products: ${error.message}`);
     const plan = planSync((rows ?? []) as unknown as ExistingRow[], products);
 
+    // Removals first, so a store near the product limit has room for new ones.
+    for (let i = 0; i < plan.deletes.length; i += CHUNK) {
+      const { error: e } = await supabase
+        .from("products")
+        .delete()
+        .eq("business_id", businessId)
+        .in("id", plan.deletes.slice(i, i + CHUNK));
+      if (e) throw new Error(`remove products: ${e.message}`);
+    }
     for (let i = 0; i < plan.inserts.length; i += CHUNK) {
       const batch = plan.inserts.slice(i, i + CHUNK).map((p) => ({ ...p, business_id: businessId, source: platform }));
       const { error: e } = await supabase.from("products").insert(batch);
+      if (e?.hint === "product_limit") {
+        throw new CatalogError(
+          "Your ShopMind product limit (5,000) is reached. Delete some products, then sync again.",
+          422,
+        );
+      }
       if (e) throw new Error(`add products: ${e.message}`);
     }
     // Changed products are rewritten in batches; the embedding trigger
@@ -116,14 +131,6 @@ export async function syncCatalog(
       const batch = plan.updates.slice(i, i + CHUNK).map((p) => ({ ...p, business_id: businessId, source: platform }));
       const { error: e } = await supabase.from("products").upsert(batch, { onConflict: "id" });
       if (e) throw new Error(`update products: ${e.message}`);
-    }
-    for (let i = 0; i < plan.deletes.length; i += CHUNK) {
-      const { error: e } = await supabase
-        .from("products")
-        .delete()
-        .eq("business_id", businessId)
-        .in("id", plan.deletes.slice(i, i + CHUNK));
-      if (e) throw new Error(`remove products: ${e.message}`);
     }
 
     await supabase
