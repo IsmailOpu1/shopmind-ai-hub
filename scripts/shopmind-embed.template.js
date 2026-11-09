@@ -6,6 +6,9 @@
 (function () {
   "use strict";
 
+  // Loaded twice (e.g. pasted in a theme and added by the npm package): keep one.
+  if (window.ShopMind && window.ShopMind.loaded) return;
+
   var script = document.currentScript;
   if (!script) {
     var candidates = document.querySelectorAll("script[src*='embed.js']");
@@ -126,7 +129,8 @@
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   var css =
@@ -371,9 +375,10 @@
   }
 
   function renderProductCard(p) {
-    var imgHtml = p.image_url
+    var imgUrl = safeUrl(p.image_url);
+    var imgHtml = imgUrl
       ? '<div class="sm-card-img"><img src="' +
-        esc(p.image_url) +
+        esc(imgUrl) +
         '" alt="' +
         esc(p.name) +
         '" loading="lazy"/></div>'
@@ -426,7 +431,8 @@
       if (v == null || v === "") missing = true;
       return encodeURIComponent(v == null ? "" : String(v));
     });
-    if (missing || !/^(https?:\/\/|\/)/i.test(url)) return null;
+    // Web links, or same-site paths ("/cart/add"); never "//other-site".
+    if (missing || !/^(https?:\/\/|\/(?![\/\\]))/i.test(url)) return null;
     return url;
   }
 
@@ -535,6 +541,13 @@
     cart = [];
   }
   var api = (window.ShopMind = window.ShopMind || {});
+  api.loaded = true;
+  // Removes the chat from the page (used by the npm package when a page unmounts).
+  api.destroy = function () {
+    if (root.parentNode) root.parentNode.removeChild(root);
+    if (styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
+    api.loaded = false;
+  };
   if (Array.isArray(api.cart)) setCart(api.cart); // set before the script loaded
   api.setCart = setCart;
   api.getCart = function () {

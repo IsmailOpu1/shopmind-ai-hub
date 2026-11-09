@@ -6,7 +6,9 @@ describe("validateCartTemplate", () => {
     ["/cart/add?id={sku}", null],
     ["https://shop.example.com/cart?add={id}", null],
     ["", "Enter your store's add-to-cart link."],
-    ["javascript:alert(1)//{id}", "The link must start with https://, http:// or /."],
+    ["javascript:alert(1)//{id}", "The link must start with https://, http:// or a single /."],
+    ["//evil.example/cart?add={id}", "The link must start with https://, http:// or a single /."],
+    ["/\\evil.example/cart?add={id}", "The link must start with https://, http:// or a single /."],
     ["/cart", "Include {id}, {sku} or {product_url} so the link points at the right product."],
   ])("%s", (template, expected) => {
     expect(validateCartTemplate(template)).toBe(expected);

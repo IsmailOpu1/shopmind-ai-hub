@@ -500,6 +500,16 @@ const ChatbotSettings = () => {
                   Advanced options (for developers)
                 </summary>
                 <div className="mt-3 space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">React / Next.js</p>
+                    <pre className="bg-[#0d1117] rounded-lg p-3 overflow-x-auto text-xs font-mono text-gray-300 border border-gray-700">
+                      <code>{`npm install shopmind-widget
+
+import { ShopMindChat } from "shopmind-widget/react";
+
+<ShopMindChat businessId="${businessId || "YOUR_BUSINESS_ID"}" />`}</code>
+                    </pre>
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     Optional attributes:{" "}
                     <code className="bg-gray-800 px-1 py-0.5 rounded">data-proactive-delay="off"</code> turns off the

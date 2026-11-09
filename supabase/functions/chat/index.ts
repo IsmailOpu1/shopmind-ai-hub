@@ -22,6 +22,8 @@ import { describeVariants, normalizeVariants } from "../_shared/store-knowledge.
 import { cartTotal, normalizeCart, resolveCart, wantsCrossSell } from "../_shared/cart.ts";
 import { toneStyle } from "../_shared/tone.ts";
 import { normalizeOrigin, shouldRecordSighting } from "../_shared/install.ts";
+import { type Platform, resolveHost } from "../_shared/catalog.ts";
+import { needsAutoSync, syncCatalog } from "../_shared/catalog-sync.ts";
 
 // Supabase Edge Runtime: keeps background work alive after the response.
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -85,6 +87,11 @@ type Business = {
   currency: string;
   tone: string | null;
   shopper_memory?: boolean;
+  catalog_platform: string | null;
+  catalog_url: string | null;
+  catalog_synced_at: string | null;
+  catalog_sync_started_at: string | null;
+  catalog_sync_error: string | null;
 };
 
 type Product = {
@@ -805,7 +812,9 @@ Deno.serve(async (req: Request) => {
       }),
       supabase
         .from("businesses")
-        .select("name, bot_name, currency, tone, shopper_memory")
+        .select(
+          "name, bot_name, currency, tone, shopper_memory, catalog_platform, catalog_url, catalog_synced_at, catalog_sync_started_at, catalog_sync_error",
+        )
         .eq("id", businessId)
         .maybeSingle(),
       supabase
@@ -930,6 +939,11 @@ Deno.serve(async (req: Request) => {
           indexPendingDocuments(supabase, geminiKey, businessId, BACKGROUND_DOCUMENT_BATCH).then((r) => {
             if (r.failed) throw new Error(`documents: ${r.failed}`);
           }),
+          // A connected Shopify/WooCommerce catalog refreshes itself every few hours.
+          needsAutoSync(business) && business.catalog_url
+            ? syncCatalog(supabase, businessId, business.catalog_platform as Platform, business.catalog_url, fetch, resolveHost)
+              .then((r) => console.log("chat: catalog auto-sync", JSON.stringify(r)))
+            : null,
           // Now and then, delete shopper memories unused for 90 days.
           Math.random() < 0.02
             ? supabase.rpc("purge_stale_shopper_profiles").then(({ error }) => {

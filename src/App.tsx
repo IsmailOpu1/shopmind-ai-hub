@@ -20,6 +20,7 @@ const Analytics = lazy(() => import("@/pages/Analytics"));
 const StoreKnowledge = lazy(() => import("@/pages/StoreKnowledge"));
 const Inbox = lazy(() => import("@/pages/Inbox"));
 const Landing = lazy(() => import("@/pages/Landing"));
+const Privacy = lazy(() => import("@/pages/Privacy"));
 
 const PageFallback = () => (
   <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
@@ -42,6 +43,7 @@ const App = () => (
                 <Route path="/" element={<Landing />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/signup" element={<Signup />} />
+                <Route path="/privacy" element={<Privacy />} />
                 <Route
                   path="/dashboard"
                   element={

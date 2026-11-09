@@ -2,12 +2,15 @@ export type CartMode = "off" | "event" | "url";
 
 export const CART_PLACEHOLDERS = ["{id}", "{sku}", "{product_url}"] as const;
 
+/** A web link, or a path on the store's own site ("//other-site" is not one). */
+const CART_LINK = /^(https?:\/\/|\/(?![/\\]))/i;
+
 /** Returns an error message, or null when the template can be saved. */
 export function validateCartTemplate(template: string): string | null {
   const t = template.trim();
   if (!t) return "Enter your store's add-to-cart link.";
   if (t.length > 500) return "The link must be 500 characters or fewer.";
-  if (!/^(https?:\/\/|\/)/i.test(t)) return "The link must start with https://, http:// or /.";
+  if (!CART_LINK.test(t)) return "The link must start with https://, http:// or a single /.";
   if (!CART_PLACEHOLDERS.some((p) => t.includes(p))) {
     return "Include {id}, {sku} or {product_url} so the link points at the right product.";
   }
@@ -33,6 +36,6 @@ export function buildCartUrl(
     if (v == null || v === "") missing = true;
     return encodeURIComponent(v ?? "");
   });
-  if (missing || !/^(https?:\/\/|\/)/i.test(url)) return null;
+  if (missing || !CART_LINK.test(url)) return null;
   return url;
 }

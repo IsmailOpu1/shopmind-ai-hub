@@ -50,6 +50,7 @@ const Signup = () => {
             value={businessName}
             onChange={(e) => setBusinessName(e.target.value)}
             required
+            maxLength={100}
             className="auth-input"
           />
         </div>
@@ -105,6 +106,14 @@ const Signup = () => {
             </>
           )}
         </Button>
+
+        <p className="text-center text-xs text-slate-500">
+          By creating an account you agree to how we handle data in our{" "}
+          <Link to="/privacy" className="text-slate-300 underline-offset-2 hover:underline">
+            privacy policy
+          </Link>
+          .
+        </p>
 
         <p className="text-center text-sm text-slate-400">
           Already have an account?{" "}
